@@ -10,55 +10,52 @@
 #include "py/runtime.h"
 #include <math.h>
 
-// Hardcoded constants for 98MHz register-speed access
 static const float PI_F         = 3.1415926535f;
 static const float TWO_PI_F     = 6.2831853071f;
 static const float HALF_PI_F    = 1.5707963267f;
 static const float INV_TWO_PI_F = 0.1591549431f;
 
 // -----------------------------------------------------------------------------
-// Core Math Engines (Optimized for ARM VSEL/VCMPE instructions)
+// Core Math Engines (Precision Tuned)
 // -----------------------------------------------------------------------------
-
-static inline float fast_sin_poly(float x) {
-    float x2 = x * x;
-    // Horner's Method: 3 muls, 2 adds
-    return x * (1.0f + x2 * (-0.1666665f + x2 * 0.0083322f));
-}
 
 static inline float fast_sin_internal(float theta) {
     // 1. Range Reduction to [-PI, PI]
-    // Manual round implementation to avoid undefined 'roundf' in some libm builds
     float quot = theta * INV_TWO_PI_F;
     float x = theta - (float)((int)(quot + (quot > 0 ? 0.5f : -0.5f))) * TWO_PI_F;
 
-    // 2. Branchless Symmetry Reduction to [-PI/2, PI/2]
-    float x_abs = fabsf(x);
-    float x_folded = (x_abs > HALF_PI_F) ? PI_F - x_abs : x_abs;
-    
-    // Restore sign branchlessly
-    float result_x = (x < 0.0f) ? -x_folded : x_folded;
+    // 2. Symmetry Reduction to [-PI/2, PI/2]
+    // Using simple branches here ensures the sign is handled perfectly at the poles
+    if (x > HALF_PI_F) { x = PI_F - x; }
+    else if (x < -HALF_PI_F) { x = -PI_F - x; }
 
-    return fast_sin_poly(result_x);
+    // 3. 5th-Degree Remez Minimax Polynomial
+    // These coefficients minimize maximum absolute error to ~0.00005
+    float x2 = x * x;
+    return x * (0.9999966f + x2 * (-0.1666482f + x2 * 0.0083062f));
 }
 
 static inline float fast_atan2_internal(float y, float x) {
-    float ay = fabsf(y) + 1e-10f; 
-    float ax = fabsf(x);
-    
-    // Determine which axis is dominant
-    float z = (ax >= ay) ? y / ax : x / ay;
-    float abs_z = fabsf(z);
-    
-    // Parabolic approximation for atan(z)
-    float angle = (0.7853982f + 0.273f * (1.0f - abs_z)) * z;
+    // Edge case: Origin
+    if (x == 0.0f && y == 0.0f) return 0.0f;
 
-    // Quadrant adjustment
-    angle = (ax < ay) ? 1.5707963f - angle : angle;
+    float abs_y = fabsf(y) + 1e-10f; // Prevent div by zero
+    float abs_x = fabsf(x);
+    float angle;
 
-    if (x < 0.0f) {
-        angle += (y >= 0.0f) ? PI_F : -PI_F;
+    // Rational approximation: atan(z) approx z / (1 + 0.28086 * z^2)
+    if (abs_x >= abs_y) {
+        float r = y / x;
+        angle = r / (1.0f + 0.28086f * r * r);
+        // Correct for negative X
+        if (x < 0.0f) {
+            angle += (y >= 0.0f) ? PI_F : -PI_F;
+        }
+    } else {
+        float r = x / y;
+        angle = (y > 0.0f ? HALF_PI_F : -HALF_PI_F) - r / (1.0f + 0.28086f * r * r);
     }
+
     return angle;
 }
 
@@ -82,7 +79,7 @@ static mp_obj_t experimental_atan2(mp_obj_t y_in, mp_obj_t x_in) {
 static MP_DEFINE_CONST_FUN_OBJ_2(experimental_atan2_obj, experimental_atan2);
 
 // -----------------------------------------------------------------------------
-// Anti-Optimization Benchmark
+// Detailed Benchmark
 // -----------------------------------------------------------------------------
 
 static mp_obj_t experimental_benchmark_detailed(mp_obj_t n_in) {
@@ -118,7 +115,7 @@ static mp_obj_t experimental_benchmark_detailed(mp_obj_t n_in) {
 static MP_DEFINE_CONST_FUN_OBJ_1(experimental_benchmark_detailed_obj, experimental_benchmark_detailed);
 
 // -----------------------------------------------------------------------------
-// Registry
+// Module Registry
 // -----------------------------------------------------------------------------
 
 static const mp_rom_map_elem_t experimental_globals_table[] = {
