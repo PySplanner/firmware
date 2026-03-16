@@ -21,7 +21,7 @@ static const float HALF_PI_F     = 1.570796326794896f;
 static const float INV_TWO_PI_F  = 0.159154943091895f;
 
 // -----------------------------------------------------------------------------
-// Core Math Engines (Optimized for Auto-VMLA generation)
+// Core Math Engines (High-Precision VMLA)
 // -----------------------------------------------------------------------------
 
 static inline float fast_sin_internal(float theta) {
@@ -32,8 +32,6 @@ static inline float fast_sin_internal(float theta) {
     else if (x < -HALF_PI_F) { x = -PI_F - x; }
 
     float x2 = x * x;
-
-    // GCC Pattern for VMLA (Multiply-Accumulate)
     float res = -0.000195152f;
     res = 0.008332152f + (x2 * res);
     res = -0.166666567f + (x2 * res);
@@ -44,18 +42,14 @@ static inline float fast_sin_internal(float theta) {
 
 static inline float fast_atan2_internal(float y, float x) {
     if (x == 0.0f && y == 0.0f) return 0.0f;
-
     float abs_y = fabsf(y) + 1e-10f;
     float abs_x = fabsf(x);
     float angle;
-
     if (abs_x >= abs_y) {
         float r = y / x;
         float den = 1.0f + (r * r * 0.28086f);
         angle = r * (1.0f / den);
-        if (x < 0.0f) {
-            angle += (y >= 0.0f) ? PI_F : -PI_F;
-        }
+        if (x < 0.0f) { angle += (y >= 0.0f) ? PI_F : -PI_F; }
     } else {
         float r = x / y;
         float den = 1.0f + (r * r * 0.28086f);
@@ -65,7 +59,7 @@ static inline float fast_atan2_internal(float y, float x) {
 }
 
 // -----------------------------------------------------------------------------
-// MicroPython Wrappers
+// Wrappers & Hardware Benchmarks
 // -----------------------------------------------------------------------------
 
 static mp_obj_t experimental_sin(mp_obj_t theta_in) {
@@ -83,42 +77,33 @@ static mp_obj_t experimental_atan2(mp_obj_t y_in, mp_obj_t x_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(experimental_atan2_obj, experimental_atan2);
 
-// -----------------------------------------------------------------------------
-// The "Truth" Hardware Benchmark
-// -----------------------------------------------------------------------------
-
 static mp_obj_t experimental_benchmark_hardware(void) {
-    DEMCR |= 0x01000000; DWT_CYCCNT = 0; DWT_CONTROL |= 1;
+    DEMCR |= 0x01000000; DWT_CONTROL |= 1;
 
     float test_val = 1.1f;
-    uint32_t start, cyc_sin, cyc_cos, cyc_atan;
+    uint32_t start, cyc_sin, cyc_atan;
     volatile float res;
 
-    // Measure Sin with Barrier
+    // Measure Sin
+    DWT_CYCCNT = 0;
     start = DWT_CYCCNT;
     res = fast_sin_internal(test_val);
-    __asm volatile ("dsb"); // Hardware Barrier: Wait for math to finish
+    __asm volatile ("dsb"); // Barrier: Force math completion
     cyc_sin = DWT_CYCCNT - start;
 
-    // Measure Atan2 with Barrier
+    // Measure Atan2
     DWT_CYCCNT = 0;
     start = DWT_CYCCNT;
     res = fast_atan2_internal(test_val, 0.5f);
-    __asm volatile ("dsb"); // Hardware Barrier
+    __asm volatile ("dsb"); // Barrier: Force math completion
     cyc_atan = DWT_CYCCNT - start;
 
     (void)res; 
 
-    return mp_obj_new_tuple(2, (mp_obj_t[]){
-        mp_obj_new_int(cyc_sin), 
-        mp_obj_new_int(cyc_atan)
-    });
+    mp_obj_t tuple[2] = { mp_obj_new_int(cyc_sin), mp_obj_new_int(cyc_atan) };
+    return mp_obj_new_tuple(2, tuple);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_benchmark_hardware_obj, experimental_benchmark_hardware);
-
-// -----------------------------------------------------------------------------
-// Registry
-// -----------------------------------------------------------------------------
 
 static const mp_rom_map_elem_t experimental_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),             MP_ROM_QSTR(MP_QSTR_experimental) },
