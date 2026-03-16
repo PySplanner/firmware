@@ -10,35 +10,30 @@
 #include "py/runtime.h"
 #include <math.h>
 
-// High-Precision Constants
 static const float PI_F          = 3.141592653589793f;
 static const float TWO_PI_F      = 6.283185307179586f;
 static const float HALF_PI_F     = 1.570796326794896f;
 static const float INV_TWO_PI_F  = 0.159154943091895f;
 
 // -----------------------------------------------------------------------------
-// Core Math Engines (Hardware Accelerated with VMLA)
+// Core Math Engines (Optimized for Auto-VMLA generation)
 // -----------------------------------------------------------------------------
 
 static inline float fast_sin_internal(float theta) {
-    // 1. Fast Range Reduction
     float x = theta * INV_TWO_PI_F;
     x = theta - (float)((int)(x + (x > 0 ? 0.5f : -0.5f))) * TWO_PI_F;
 
-    // 2. Symmetry Folding
     if (x > HALF_PI_F) { x = PI_F - x; }
     else if (x < -HALF_PI_F) { x = -PI_F - x; }
 
     float x2 = x * x;
 
-    /* * 3. 7th-Degree Polynomial using ARM VMLA Intrinsics 
-     * Horner's Method: y = x * (1 + x^2 * (C1 + x^2 * (C2 + x^2 * C3)))
-     * The compiler maps these to single-cycle hardware instructions.
-     */
+    // By writing it as a = a + b * c, the GCC compiler for Cortex-M4 
+    // will automatically generate the VMLA (Multiply-Accumulate) instruction.
     float res = -0.000195152f;
-    res = __builtin_arm_vmla_f32(0.008332152f, x2, res);
-    res = __builtin_arm_vmla_f32(-0.166666567f, x2, res);
-    res = __builtin_arm_vmla_f32(1.0f, x2, res);
+    res = 0.008332152f + (x2 * res);
+    res = -0.166666567f + (x2 * res);
+    res = 1.0f + (x2 * res);
     
     return x * res;
 }
@@ -52,20 +47,22 @@ static inline float fast_atan2_internal(float y, float x) {
 
     if (abs_x >= abs_y) {
         float r = y / x;
-        // Optimization: Use VMLA for the rational denominator
-        angle = r * (1.0f / __builtin_arm_vmla_f32(1.0f, r * r, 0.28086f));
+        // Simplified for auto-VMLA
+        float den = 1.0f + (r * r * 0.28086f);
+        angle = r * (1.0f / den);
         if (x < 0.0f) {
             angle += (y >= 0.0f) ? PI_F : -PI_F;
         }
     } else {
         float r = x / y;
-        angle = (y > 0.0f ? HALF_PI_F : -HALF_PI_F) - r * (1.0f / __builtin_arm_vmla_f32(1.0f, r * r, 0.28086f));
+        float den = 1.0f + (r * r * 0.28086f);
+        angle = (y > 0.0f ? HALF_PI_F : -HALF_PI_F) - r * (1.0f / den);
     }
     return angle;
 }
 
 // -----------------------------------------------------------------------------
-// Unrolled Benchmark (Slashing Loop Overhead)
+// Unrolled Benchmark
 // -----------------------------------------------------------------------------
 
 static mp_obj_t experimental_benchmark_detailed(mp_obj_t n_in) {
@@ -74,8 +71,8 @@ static mp_obj_t experimental_benchmark_detailed(mp_obj_t n_in) {
     uint32_t t0, t1, t2, t3;
     float inv_n = 1.0f / (float)n;
     
-    // Benchmark Sin with 4x Loop Unrolling
     t0 = mp_hal_ticks_ms();
+    // 4x Unrolling for Sin
     for (int32_t i = 0; i < n; i += 4) {
         result += fast_sin_internal((float)(i) * inv_n);
         result += fast_sin_internal((float)(i+1) * inv_n);
@@ -84,15 +81,12 @@ static mp_obj_t experimental_benchmark_detailed(mp_obj_t n_in) {
     }
     
     t1 = mp_hal_ticks_ms();
+    // 4x Unrolling for Cos
     for (int32_t i = 0; i < n; i += 4) {
-        float v0 = ((float)(i) * inv_n) + HALF_PI_F;
-        float v1 = ((float)(i+1) * inv_n) + HALF_PI_F;
-        float v2 = ((float)(i+2) * inv_n) + HALF_PI_F;
-        float v3 = ((float)(i+3) * inv_n) + HALF_PI_F;
-        result += fast_sin_internal(v0);
-        result += fast_sin_internal(v1);
-        result += fast_sin_internal(v2);
-        result += fast_sin_internal(v3);
+        result += fast_sin_internal(((float)(i) * inv_n) + HALF_PI_F);
+        result += fast_sin_internal(((float)(i+1) * inv_n) + HALF_PI_F);
+        result += fast_sin_internal(((float)(i+2) * inv_n) + HALF_PI_F);
+        result += fast_sin_internal(((float)(i+3) * inv_n) + HALF_PI_F);
     }
 
     t2 = mp_hal_ticks_ms();
