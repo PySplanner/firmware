@@ -8,32 +8,27 @@
 #include "py/mphal.h"
 #include "py/obj.h"
 #include "py/runtime.h"
-
 #include <math.h>
 
-// Math Constants - Hardcoded for register-speed access
 static const float PI_F         = 3.1415926535f;
 static const float TWO_PI_F     = 6.2831853071f;
 static const float HALF_PI_F    = 1.5707963267f;
 static const float INV_TWO_PI_F = 0.1591549431f;
 
 // -----------------------------------------------------------------------------
-// Internal Math Engines (Inlined for zero call overhead)
+// Internal Engines (Inlined)
 // -----------------------------------------------------------------------------
 
 static inline float fast_sin_poly(float x) {
     float x2 = x * x;
-    // Horner's Method: reduces the number of multiplications
     return x * (1.0f + x2 * (-0.1666665f + x2 * 0.0083322f));
 }
 
 static inline float fast_sin_internal(float theta) {
     float quot = theta * INV_TWO_PI_F;
     float x = theta - (float)((int)(quot + (quot > 0 ? 0.5f : -0.5f))) * TWO_PI_F;
-
     if (x > HALF_PI_F) { x = PI_F - x; }
     else if (x < -HALF_PI_F) { x = -PI_F - x; }
-
     return fast_sin_poly(x);
 }
 
@@ -41,7 +36,6 @@ static inline float fast_atan2_internal(float y, float x) {
     float ay = fabsf(y) + 1e-10f; 
     float ax = fabsf(x);
     float z, angle;
-
     if (ax >= ay) {
         z = y / ax;
         angle = (0.7853982f + 0.273f * (1.0f - fabsf(z))) * z;
@@ -49,7 +43,6 @@ static inline float fast_atan2_internal(float y, float x) {
         z = x / ay;
         angle = 1.5707963f - (0.7853982f + 0.273f * (1.0f - fabsf(z))) * z;
     }
-
     if (x < 0.0f) {
         angle += (y >= 0.0f) ? PI_F : -PI_F;
     }
@@ -76,46 +69,42 @@ static mp_obj_t experimental_atan2(mp_obj_t y_in, mp_obj_t x_in) {
 static MP_DEFINE_CONST_FUN_OBJ_2(experimental_atan2_obj, experimental_atan2);
 
 // -----------------------------------------------------------------------------
-// Detailed Granular Benchmark
+// Detailed Internal Benchmark (Defeats Compiler Shortcuts)
 // -----------------------------------------------------------------------------
 
 static mp_obj_t experimental_benchmark_detailed(mp_obj_t n_in) {
     int32_t n = mp_obj_get_int(n_in);
     volatile float result = 0.0f; 
     uint32_t t0, t1, t2, t3;
+    float inv_n = 1.0f / (float)n;
     
-    // Loop 1: Sine Only
     t0 = mp_hal_ticks_ms();
     for (int32_t i = 0; i < n; i++) {
-        result += fast_sin_internal(1.1f);
+        // Varying input prevents the compiler from pre-calculating
+        result += fast_sin_internal((float)i * inv_n);
     }
     
-    // Loop 2: Cosine Only (includes the HALF_PI addition)
     t1 = mp_hal_ticks_ms();
     for (int32_t i = 0; i < n; i++) {
-        result += fast_sin_internal(1.1f + HALF_PI_F);
+        result += fast_sin_internal(((float)i * inv_n) + HALF_PI_F);
     }
 
-    // Loop 3: Atan2 Only (includes the division and branching)
     t2 = mp_hal_ticks_ms();
     for (int32_t i = 0; i < n; i++) {
-        result += fast_atan2_internal(1.1f, 1.1f);
+        // Changing y and x forces different branches in atan2
+        result += fast_atan2_internal((float)i, (float)(n - i));
     }
     t3 = mp_hal_ticks_ms();
 
     mp_obj_t tuple[4] = {
-        mp_obj_new_int(t1 - t0), // Sin ms
-        mp_obj_new_int(t2 - t1), // Cos ms
-        mp_obj_new_int(t3 - t2), // Atan2 ms
-        mp_obj_new_int(t3 - t0)  // Total ms
+        mp_obj_new_int(t1 - t0), 
+        mp_obj_new_int(t2 - t1), 
+        mp_obj_new_int(t3 - t2), 
+        mp_obj_new_int(t3 - t0)  
     };
     return mp_obj_new_tuple(4, tuple);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(experimental_benchmark_detailed_obj, experimental_benchmark_detailed);
-
-// -----------------------------------------------------------------------------
-// Module Registry
-// -----------------------------------------------------------------------------
 
 static const mp_rom_map_elem_t experimental_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),             MP_ROM_QSTR(MP_QSTR_experimental) },
@@ -134,5 +123,4 @@ const mp_obj_module_t pb_module_experimental = {
 #if !MICROPY_MODULE_BUILTIN_SUBPACKAGES
 MP_REGISTER_MODULE(MP_QSTR_pybricks_dot_experimental, pb_module_experimental);
 #endif
-
-#endif // PYBRICKS_PY_EXPERIMENTAL
+#endif
