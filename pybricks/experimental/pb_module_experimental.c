@@ -77,31 +77,28 @@ static mp_obj_t experimental_atan2(mp_obj_t y_in, mp_obj_t x_in) {
 }
 static MP_DEFINE_CONST_FUN_OBJ_2(experimental_atan2_obj, experimental_atan2);
 
-static mp_obj_t experimental_benchmark_hardware(void) {
+static mp_obj_t experimental_benchmark_hardware(mp_obj_t seed_in) {
+    float seed = mp_obj_get_float(seed_in);
+    
     DEMCR |= 0x01000000; DWT_CONTROL |= 1;
-
-    float test_val = 1.1f;
-    uint32_t start, cyc_sin, cyc_atan;
+    uint32_t start, cyc_sin;
     volatile float res;
 
-    // Measure Sin
+    // We use a small loop to 'prime' the pipeline
     DWT_CYCCNT = 0;
     start = DWT_CYCCNT;
-    res = fast_sin_internal(test_val);
-    __asm volatile ("dsb"); // Barrier: Force math completion
+    
+    // Changing the input slightly inside C to ensure the FPU actually works
+    res = fast_sin_internal(seed);
+    res = fast_sin_internal(res + 0.01f); // Chain them so the CPU must wait for the first to finish
+    
+    __asm volatile ("dsb"); 
     cyc_sin = DWT_CYCCNT - start;
-
-    // Measure Atan2
-    DWT_CYCCNT = 0;
-    start = DWT_CYCCNT;
-    res = fast_atan2_internal(test_val, 0.5f);
-    __asm volatile ("dsb"); // Barrier: Force math completion
-    cyc_atan = DWT_CYCCNT - start;
 
     (void)res; 
 
-    mp_obj_t tuple[2] = { mp_obj_new_int(cyc_sin), mp_obj_new_int(cyc_atan) };
-    return mp_obj_new_tuple(2, tuple);
+    // We divide by 2 because we ran the function twice to chain the results
+    return mp_obj_new_int(cyc_sin / 2);
 }
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_benchmark_hardware_obj, experimental_benchmark_hardware);
 
