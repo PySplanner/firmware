@@ -1,10 +1,11 @@
+name: Release on Changelog Update
+
 on:
   push:
-    tags:
-    - 'v3.*'
-    - 'v4.*'
-
-name: Upload Release Assets
+    branches:
+      - master
+    paths:
+      - 'CHANGELOG.md'
 
 env:
   MAKEOPTS: -j
@@ -13,27 +14,78 @@ permissions:
   contents: write
 
 jobs:
-  upload_release:
-    name: Upload Release Assets
+  release:
+    name: Build and Release
     runs-on: ubuntu-24.04
     steps:
-      - name: Install cross-compiler
-        run: sudo apt-get update && sudo apt-get install --yes gcc-arm-none-eabi
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           submodules: true
           fetch-depth: 0
+
+      - name: Extract latest version and release notes from CHANGELOG.md
+        id: changelog
+        run: |
+          # Find the first versioned section (skip [Unreleased])
+          # Pattern: ## [x.y.z...] - date
+          VERSION=$(grep -oP '(?<=^## \[)[^\]]+(?=\])' CHANGELOG.md | grep -v -i '^Unreleased$' | head -1)
+
+          if [ -z "$VERSION" ]; then
+            echo "No versioned release found in CHANGELOG.md"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Extract release notes between this version's heading and the next ## heading
+          # Use awk to capture lines between the target section and the next section
+          ESCAPED_VERSION=$(printf '%s' "$VERSION" | sed 's/[.[\*^$()+?{|]/\\&/g')
+          NOTES=$(awk "/^## \\[$ESCAPED_VERSION\\]/{found=1; next} found && /^## \\[/{exit} found{print}" CHANGELOG.md)
+
+          # Write notes to a file for the release body
+          echo "$NOTES" > /tmp/release_notes.md
+
+          echo "Detected version: $VERSION"
+          echo "Release notes:"
+          cat /tmp/release_notes.md
+
+      - name: Check if release already exists
+        id: check_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ steps.changelog.outputs.version }}"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "Release $TAG already exists. Skipping."
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install cross-compiler
+        if: steps.check_release.outputs.exists == 'false'
+        run: sudo apt-get update && sudo apt-get install --yes gcc-arm-none-eabi
+
       - run: pipx install poetry
+        if: steps.check_release.outputs.exists == 'false'
+
       - run: poetry install --only=build
+        if: steps.check_release.outputs.exists == 'false'
+
       - name: Create credits file
+        if: steps.check_release.outputs.exists == 'false'
         run: |
           echo "$PYBRICKS_EV3_CREDITS" > bricks/ev3/ci_credits.txt
         env:
           PYBRICKS_EV3_CREDITS: ${{ secrets.PYBRICKS_EV3_CREDITS }}
+
       - name: Build firmware
+        if: steps.check_release.outputs.exists == 'false'
         run: |
-          export MICROPY_GIT_TAG=ci-release-${{ github.run_number }}-$(git describe --tags --dirty --always --exclude "@pybricks/*")
+          TAG="${{ steps.changelog.outputs.tag }}"
+          export MICROPY_GIT_TAG=ci-release-${{ github.run_number }}-${TAG}
           export MICROPY_GIT_HASH=$(echo ${{ github.sha }} | cut -c1-8)
           poetry run make $MAKEOPTS -C micropython/mpy-cross
           poetry run make $MAKEOPTS -C bricks/movehub
@@ -43,27 +95,37 @@ jobs:
           poetry run make $MAKEOPTS -C bricks/essentialhub
           poetry run make $MAKEOPTS -C bricks/nxt
           poetry run make $MAKEOPTS -C bricks/ev3
-      - name: Get tag
-        run: echo "GITHUB_TAG=${GITHUB_REF#*refs/tags/}" >> $GITHUB_ENV
+
       - name: Create Release and Upload Assets
+        if: steps.check_release.outputs.exists == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          tag: ${{ github.ref_name }}
         run: |
-          if [[ "${{ contains(env.GITHUB_TAG, 'a') || contains(env.GITHUB_TAG, 'b') || contains(env.GITHUB_TAG, 'c') }}" == "true" ]]; then
+          TAG="${{ steps.changelog.outputs.tag }}"
+          VERSION="${{ steps.changelog.outputs.version }}"
+
+          # Determine pre-release flag (alpha, beta, release candidate)
+          PRERELEASE_FLAG=""
+          if [[ "$VERSION" == *a* ]] || [[ "$VERSION" == *b* ]] || [[ "$VERSION" == *rc* ]]; then
             PRERELEASE_FLAG="--prerelease"
-          else
-            PRERELEASE_FLAG=""
           fi
+
+          # Rename and collect firmware assets
           HUBS="movehub cityhub technichub primehub essentialhub nxt ev3"
+          ASSETS=""
           for HUB in $HUBS; do
-            NEW_FILENAME="./bricks/$HUB/build/pybricks-$HUB-${{ env.GITHUB_TAG }}.zip"
+            NEW_FILENAME="./bricks/$HUB/build/pybricks-$HUB-$TAG.zip"
             mv "./bricks/$HUB/build/firmware.zip" "$NEW_FILENAME"
             ASSETS="$ASSETS $NEW_FILENAME"
           done
-          gh release create "$tag" \
+
+          # Create the git tag and GitHub release
+          git tag "$TAG"
+          git push origin "$TAG"
+
+          gh release create "$TAG" \
               --repo="$GITHUB_REPOSITORY" \
-              --title="${tag#v}" \
-              -F CHANGELOG.md \
+              --title="${VERSION}" \
+              -F /tmp/release_notes.md \
               $PRERELEASE_FLAG \
               $ASSETS
