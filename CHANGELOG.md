@@ -2,23 +2,12 @@
 
 # Changelog
 
-## [Unreleased]
+## [psp0.1.0a] - 2026-03-15
 
 ### Added
-- Added `pybricks.pupdevices.MarioHub` to control it as a peripheral. It
-  cannot be used as a standalone device since it cannot ne updated.
+- Trigonometry testing in pybricks.experimental
 
-### Changed
-- The EV3 Color Sensor now returns `Color.NONE` instead of `None` when no color
-  is detected, for consistency with other Color Sensors ([support#2603]).
-
-### Fixed
-- Fixed EV3 light animation stopping when screen is used ([support#2599]).
-- Fixed Powered Up motors not resetting to the absolute value ([support#2620]).
-
-[support#2599]: https://github.com/pybricks/support/issues/2599
-[support#2603]: https://github.com/pybricks/support/issues/2603
-[support#2620]: https://github.com/pybricks/support/issues/2620
+This release it mainly to test the new action, it does not have any PySplanner features.
 
 ## [4.0.0b7] - 2026-02-19
 
