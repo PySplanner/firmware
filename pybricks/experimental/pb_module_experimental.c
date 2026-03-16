@@ -7,41 +7,40 @@
 
 #include "py/mphal.h"
 #include "py/obj.h"
-#include "py/objstr.h"
 #include "py/runtime.h"
-#include "py/mperrno.h"
-
-#include <pbio/util.h>
-
-#include <pybricks/util_mp/pb_obj_helper.h>
-#include <pybricks/util_mp/pb_kwarg_helper.h>
-#include <pybricks/util_pb/pb_error.h>
-#include <pybricks/robotics.h>
 
 #include <math.h>
 
-// Math Constants
+// Math Constants - Hardcoded for speed
 static const float PI_F         = 3.1415926535f;
 static const float TWO_PI_F     = 6.2831853071f;
 static const float HALF_PI_F    = 1.5707963267f;
 static const float INV_TWO_PI_F = 0.1591549431f;
 
 // -----------------------------------------------------------------------------
-// Internal Math Engines
+// Min-Maxed Internal Engines
 // -----------------------------------------------------------------------------
 
-static float fast_sin_internal(float theta) {
-    float quot = theta * INV_TWO_PI_F;
-    float x = theta - (float)((int)(quot + (quot > 0 ? 0.5f : -0.5f))) * TWO_PI_F;
-
-    if (x > HALF_PI_F) x = PI_F - x;
-    else if (x < -HALF_PI_F) x = -PI_F - x;
-
+// Core Polynomial - Inlined to remove call overhead
+static inline float fast_sin_poly(float x) {
     float x2 = x * x;
+    // Horner's Method: reduces the number of multiplications
     return x * (1.0f + x2 * (-0.1666665f + x2 * 0.0083322f));
 }
 
-static float fast_atan2_internal(float y, float x) {
+static inline float fast_sin_internal(float theta) {
+    // Fast range reduction
+    float quot = theta * INV_TWO_PI_F;
+    float x = theta - (float)((int)(quot + (quot > 0 ? 0.5f : -0.5f))) * TWO_PI_F;
+
+    // Symmetry reduction
+    if (x > HALF_PI_F) { x = PI_F - x; }
+    else if (x < -HALF_PI_F) { x = -PI_F - x; }
+
+    return fast_sin_poly(x);
+}
+
+static inline float fast_atan2_internal(float y, float x) {
     float ay = fabsf(y) + 1e-10f; 
     float ax = fabsf(x);
     float z, angle;
@@ -61,63 +60,45 @@ static float fast_atan2_internal(float y, float x) {
 }
 
 // -----------------------------------------------------------------------------
-// MicroPython Functions
+// MicroPython Wrappers
 // -----------------------------------------------------------------------------
 
 static mp_obj_t experimental_sin(mp_obj_t theta_in) {
-    float theta = mp_obj_get_float(theta_in);
-    return mp_obj_new_float_from_f(fast_sin_internal(theta));
+    return mp_obj_new_float_from_f(fast_sin_internal(mp_obj_get_float(theta_in)));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(experimental_sin_obj, experimental_sin);
 
 static mp_obj_t experimental_cos(mp_obj_t theta_in) {
-    float theta = mp_obj_get_float(theta_in);
-    return mp_obj_new_float_from_f(fast_sin_internal(theta + HALF_PI_F));
+    return mp_obj_new_float_from_f(fast_sin_internal(mp_obj_get_float(theta_in) + HALF_PI_F));
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(experimental_cos_obj, experimental_cos);
 
-static mp_obj_t experimental_atan2(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
-    PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args,
-        PB_ARG_REQUIRED(y),
-        PB_ARG_REQUIRED(x));
-
-    float y = mp_obj_get_float(y_in);
-    float x = mp_obj_get_float(x_in);
-
-    return mp_obj_new_float_from_f(fast_atan2_internal(y, x));
+// MIN-MAX: Using FUN_OBJ_2 instead of FUN_OBJ_KW to eliminate keyword parsing overhead
+static mp_obj_t experimental_atan2(mp_obj_t y_in, mp_obj_t x_in) {
+    return mp_obj_new_float_from_f(fast_atan2_internal(mp_obj_get_float(y_in), mp_obj_get_float(x_in)));
 }
-static MP_DEFINE_CONST_FUN_OBJ_KW(experimental_atan2_obj, 2, experimental_atan2);
+static MP_DEFINE_CONST_FUN_OBJ_2(experimental_atan2_obj, experimental_atan2);
 
 // -----------------------------------------------------------------------------
-// New: Detailed Internal Benchmark
+// Benchmark
 // -----------------------------------------------------------------------------
 
-// Runs sin, cos, and atan2 inside a C loop to measure pure CPU performance
-// Returns a tuple: (total_time_ms, avg_ns_per_triple_op)
 static mp_obj_t experimental_benchmark_internal(mp_obj_t n_in) {
     int32_t n = mp_obj_get_int(n_in);
     volatile float result = 0.0f; 
-    
     uint32_t start = mp_hal_ticks_ms();
     
     for (int32_t i = 0; i < n; i++) {
-        // We use the internal engines directly to bypass ANY MicroPython overhead
         result += fast_sin_internal(1.23f);
-        result += fast_sin_internal(1.23f + HALF_PI_F); // Cos
+        result += fast_sin_internal(1.23f + HALF_PI_F);
         result += fast_atan2_internal(1.23f, 1.23f);
     }
     
     uint32_t end = mp_hal_ticks_ms();
     uint32_t total_ms = end - start;
-    
-    // Calculate nanoseconds per loop (1ms = 1,000,000ns)
-    // Avoid division by zero
     float ns_per_op = (n > 0) ? ((float)total_ms * 1000000.0f) / n : 0;
 
-    mp_obj_t tuple[2];
-    tuple[0] = mp_obj_new_int(total_ms);
-    tuple[1] = mp_obj_new_float(ns_per_op);
-    
+    mp_obj_t tuple[2] = { mp_obj_new_int(total_ms), mp_obj_new_float(ns_per_op) };
     return mp_obj_new_tuple(2, tuple);
 }
 static MP_DEFINE_CONST_FUN_OBJ_1(experimental_benchmark_internal_obj, experimental_benchmark_internal);
