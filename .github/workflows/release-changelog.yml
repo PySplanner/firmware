@@ -88,12 +88,12 @@ jobs:
           export MICROPY_GIT_TAG=ci-release-${{ github.run_number }}-${TAG}
           export MICROPY_GIT_HASH=$(echo ${{ github.sha }} | cut -c1-8)
           poetry run make $MAKEOPTS -C micropython/mpy-cross
-          poetry run make $MAKEOPTS -C bricks/movehub
-          poetry run make $MAKEOPTS -C bricks/cityhub
-          poetry run make $MAKEOPTS -C bricks/technichub
+          # poetry run make $MAKEOPTS -C bricks/movehub
+          # poetry run make $MAKEOPTS -C bricks/cityhub
+          # poetry run make $MAKEOPTS -C bricks/technichub
           poetry run make $MAKEOPTS -C bricks/primehub
-          poetry run make $MAKEOPTS -C bricks/essentialhub
-          poetry run make $MAKEOPTS -C bricks/nxt
+          # poetry run make $MAKEOPTS -C bricks/essentialhub
+          # poetry run make $MAKEOPTS -C bricks/nxt
           poetry run make $MAKEOPTS -C bricks/ev3
 
       - name: Create Release and Upload Assets
