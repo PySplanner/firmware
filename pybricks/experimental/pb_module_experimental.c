@@ -13,6 +13,11 @@
 #include <pbio/tacho.h>
 #include <pbio/drivebase.h>
 
+// We include the hub-specific headers to let the build system 
+// resolve the actual structure definitions.
+#include "pybricks/pupdevices.h"
+#include "pybricks/robotics.h"
+
 #if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
     #define IS_CORTEX_M 1
     #define ACCEL_RAM __attribute__((section(".data"), noinline))
@@ -21,26 +26,26 @@
     #define ACCEL_RAM
 #endif
 
-// Manually defining internal structures. 
-// Note: Added padding to verify the tacho pointer offset.
-typedef struct _pb_type_Motor_obj_t {
-    mp_obj_base_t base;
-    char padding[4]; 
-    pbio_tacho_t *tacho;
-} pb_type_Motor_obj_t;
-
-typedef struct _pb_type_DriveBase_obj_t {
-    mp_obj_base_t base;
-    pbio_drivebase_t *db;
-} pb_type_DriveBase_obj_t;
+// -----------------------------------------------------------------------------
+// Core Math Engine
+// -----------------------------------------------------------------------------
+ACCEL_RAM static float fast_sin_internal(float theta) {
+    float x = theta * 0.159154943f; // INV_TWO_PI
+    x = theta - (float)((int)(x + (x > 0 ? 0.5f : -0.5f))) * 6.2831853f;
+    if (x > 1.5707963f) x = 3.1415926f - x;
+    else if (x < -1.5707963f) x = -3.1415926f - x;
+    float x2 = x * x;
+    return x * (0.99999906f + x2 * (-0.16665554f + x2 * (0.00831190f + x2 * -0.00018488f)));
+}
 
 // -----------------------------------------------------------------------------
-// High-Speed Direct-Tacho Odometry (Diagnostic Build)
+// High-Speed Direct-Tacho Odometry
 // -----------------------------------------------------------------------------
 static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
     int num_iters = mp_obj_get_int(args[0]);
     float wheel_circ = mp_obj_get_float(args[1]);
 
+    // Use the official Pybricks object types
     pb_type_Motor_obj_t *right_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[2]);
     pb_type_Motor_obj_t *left_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[3]);
     pb_type_DriveBase_obj_t *db_obj = (pb_type_DriveBase_obj_t *)MP_OBJ_TO_PTR(args[4]);
@@ -51,14 +56,10 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     pbio_angle_t ang_l, ang_r;
     int32_t h_mdeg;
 
-    // Initial capture
+    // Initial state
     pbio_tacho_get_angle(left_motor->tacho, &ang_l);
     pbio_tacho_get_angle(right_motor->tacho, &ang_r);
     pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
-
-    // LOG START: Using mp_printf to guarantee it shows up in the Pybricks IDE terminal
-    mp_printf(&mp_plat_print, "C-DEBUG: TachoL=%ld TachoR=%ld Circ=%d\n", 
-              (long)ang_l.rotations, (long)ang_r.rotations, (int)wheel_circ);
 
     float last_l_mm = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f) * deg_to_mm;
     float last_r_mm = ((float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
@@ -80,24 +81,18 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
         float linear_delta = cur_lin - last_lin;
         float heading_delta = cur_heading - last_heading;
 
-        if (fabsf(linear_delta) > 0.0f) {
+        if (fabsf(linear_delta) > 0.0001f) {
             float avg_h_rad = (last_heading + (heading_delta / 2.0f)) * 0.01745329f;
-            robot_x += linear_delta * cosf(avg_h_rad);
-            robot_y += linear_delta * sinf(avg_h_rad);
+            robot_x += linear_delta * fast_sin_internal(avg_h_rad + 1.5707963f);
+            robot_y += linear_delta * fast_sin_internal(avg_h_rad);
         }
 
         last_lin = cur_lin;
         last_heading = cur_heading;
 
-        if ((i % 5000) == 0) {
+        if ((i % 2000) == 0) {
             mp_handle_pending(true);
             mp_hal_delay_ms(1);
-        }
-        
-        // LOG PROGRESS
-        if (i > 0 && (i % 1000000) == 0) {
-            mp_printf(&mp_plat_print, "C-ITER %d: X=%d Y=%d D=%d\n", 
-                      i, (int)robot_x, (int)robot_y, (int)linear_delta);
         }
     }
 
