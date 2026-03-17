@@ -10,11 +10,8 @@
 #include "py/runtime.h"
 #include <math.h>
 
-// Pybricks Hardware Headers
 #include <pbio/tacho.h>
 #include <pbio/drivebase.h>
-#include "pybricks/pupdevices.h"
-#include "pybricks/robotics.h"
 
 #if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
     #define IS_CORTEX_M 1
@@ -23,6 +20,17 @@
     #define IS_CORTEX_M 0
     #define ACCEL_RAM
 #endif
+
+// Manually defining the minimal internal structures to bypass header errors
+typedef struct _pb_type_Motor_obj_t {
+    mp_obj_base_t base;
+    pbio_tacho_t *tacho;
+} pb_type_Motor_obj_t;
+
+typedef struct _pb_type_DriveBase_obj_t {
+    mp_obj_base_t base;
+    pbio_drivebase_t *db;
+} pb_type_DriveBase_obj_t;
 
 // Constants
 static const float PI_F = 3.141592653589793f;
@@ -59,7 +67,6 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     int num_iters = mp_obj_get_int(args[0]);
     float wheel_circ = mp_obj_get_float(args[1]);
 
-    // Bypassing get_tacho by using the Motor Object passed from Python
     pb_type_Motor_obj_t *right_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[2]);
     pb_type_Motor_obj_t *left_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[3]);
     pb_type_DriveBase_obj_t *db_obj = (pb_type_DriveBase_obj_t *)MP_OBJ_TO_PTR(args[4]);
@@ -74,16 +81,18 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     float last_lin = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f +
                       (float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
     
-    // Direct access to the internal DriveBase heading state
-    float last_heading = db_obj->db->state.heading / 1000.0f;
+    int32_t h_mdeg;
+    pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
+    float last_heading = (float)h_mdeg / 1000.0f;
 
     uint32_t start_time = mp_hal_ticks_ms();
 
     for (int i = 0; i < num_iters; i++) {
         pbio_tacho_get_angle(left_motor->tacho, &ang_l);
         pbio_tacho_get_angle(right_motor->tacho, &ang_r);
-        
-        float cur_heading = db_obj->db->state.heading / 1000.0f;
+        pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
+
+        float cur_heading = (float)h_mdeg / 1000.0f;
         float cur_lin = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f +
                          (float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
 
@@ -117,7 +126,6 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     return mp_obj_new_tuple(5, tuple);
 }
 
-// Re-enabling 5 argument mode to accept motor objects
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
 
 static const mp_rom_map_elem_t experimental_globals_table[] = {
