@@ -10,10 +10,8 @@
 #include "py/runtime.h"
 #include <math.h>
 
-// Adjusted include paths to match Pybricks build system search paths
-#include "pybricks/pupdevices.h"
-#include "pybricks/robotics.h"
 #include <pbio/tacho.h>
+#include <pbio/drivebase.h>
 
 #if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
     #define IS_CORTEX_M 1
@@ -23,25 +21,22 @@
     #define ACCEL_RAM
 #endif
 
-// Constants
 static const float PI_F = 3.141592653589793f;
 static const float TWO_PI_F = 6.283185307179586f;
 static const float HALF_PI_F = 1.570796326794896f;
 static const float INV_TWO_PI_F = 0.159154943091895f;
 
 // -----------------------------------------------------------------------------
-// Core Math Engine (Lasse Schlör Absolute Error Optimized)
+// Core Math Engine
 // -----------------------------------------------------------------------------
 ACCEL_RAM static float fast_sin_internal(float theta) {
     float x = theta * INV_TWO_PI_F;
     x = theta - (float)((int)(x + (x > 0 ? 0.5f : -0.5f))) * TWO_PI_F;
-
     if (x > HALF_PI_F) {
         x = PI_F - x;
     } else if (x < -HALF_PI_F) {
         x = -PI_F - x;
     }
-
     float x2 = x * x;
     #if IS_CORTEX_M
     float res = -0.0001848814f;
@@ -53,67 +48,67 @@ ACCEL_RAM static float fast_sin_internal(float theta) {
     #endif
 }
 
-// Helper to safely unpack hardware values
-static float get_float_from_obj(mp_obj_t obj) {
-    if (MP_OBJ_IS_SMALL_INT(obj)) {
-        return (float)MP_OBJ_SMALL_INT_VALUE(obj);
-    } else if (mp_obj_is_type(obj, &mp_type_float)) {
-        return mp_obj_get_float(obj);
-    } else {
-        return (float)mp_obj_get_int(obj);
-    }
-}
-
 // -----------------------------------------------------------------------------
-// The "Bare Metal" Odometry Benchmark
+// High-Speed Bare Metal Odometry
 // -----------------------------------------------------------------------------
 static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
     int num_iters = mp_obj_get_int(args[0]);
-    float wheel_circ = get_float_from_obj(args[1]);
+    float wheel_circ = mp_obj_get_float(args[1]);
 
-    // Unpack as pointers to Pybricks objects
-    // Note: We use the generic object pointer then cast to access members
-    pb_type_Motor_obj_t *right_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[2]);
-    pb_type_Motor_obj_t *left_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[3]);
-    pb_type_DriveBase_obj_t *db = (pb_type_DriveBase_obj_t *)MP_OBJ_TO_PTR(args[4]);
+    // We use the raw PBIO Port IDs directly to avoid struct-naming conflicts
+    // Assuming Port A = Left, Port D = Right (Standard EV3/Spike setup)
+    pbio_tacho_t *tacho_l = pbio_tacho_get_tacho(PBIO_PORT_ID_A);
+    pbio_tacho_t *tacho_r = pbio_tacho_get_tacho(PBIO_PORT_ID_D);
+    
+    // Grab the global DriveBase pointer
+    pbio_drivebase_t *db;
+    pbio_drivebase_get_drivebase(&db);
 
     float deg_to_mm = wheel_circ / 720.0f;
     float robot_x = 0.0f, robot_y = 0.0f;
-    float last_linear = 0.0f, last_heading = 0.0f;
+    
+    pbio_angle_t ang_l, ang_r;
+    pbio_tacho_get_angle(tacho_l, &ang_l);
+    pbio_tacho_get_angle(tacho_r, &ang_r);
+    
+    float last_lin = (float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f +
+                     (float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f;
+    last_lin *= deg_to_mm;
+
+    int32_t h_mdeg;
+    pbio_drivebase_get_state(db, NULL, NULL, &h_mdeg, NULL);
+    float last_heading = (float)h_mdeg / 1000.0f;
 
     uint32_t start_time = mp_hal_ticks_ms();
 
     for (int i = 0; i < num_iters; i++) {
-        int32_t r_ang, l_ang;
-        pbio_tacho_get_angle(right_motor->tacho, &r_ang);
-        pbio_tacho_get_angle(left_motor->tacho, &l_ang);
+        pbio_tacho_get_angle(tacho_l, &ang_l);
+        pbio_tacho_get_angle(tacho_r, &ang_r);
+        pbio_drivebase_get_state(db, NULL, NULL, &h_mdeg, NULL);
 
-        // Heading access: On many Pybricks versions, it's inside a state struct
-        // We use the getter to be safe across EV3/Spike builds
-        float robot_heading = pbio_drivebase_get_heading(db->db);
+        float cur_lin = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f +
+                         (float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
+        float cur_heading = (float)h_mdeg / 1000.0f;
 
-        float current_linear = (float)(r_ang + l_ang) * deg_to_mm;
-        float linear = current_linear - last_linear;
-        float heading_difference = robot_heading - last_heading;
+        float linear_delta = cur_lin - last_lin;
+        float heading_delta = cur_heading - last_heading;
 
-        last_linear = current_linear;
-        last_heading = robot_heading;
-
-        if (fabsf(linear) > 0.0f) {
-            float avg_heading_deg = last_heading - (heading_difference / 2.0f);
-            float avg_heading_rad = avg_heading_deg * 0.0174532925f;
-
-            robot_x += linear * fast_sin_internal(avg_heading_rad + HALF_PI_F);
-            robot_y += linear * fast_sin_internal(avg_heading_rad);
+        if (fabsf(linear_delta) > 0.001f) {
+            float avg_h_rad = (last_heading + (heading_delta / 2.0f)) * 0.01745329f;
+            robot_x += linear_delta * fast_sin_internal(avg_h_rad + HALF_PI_F);
+            robot_y += linear_delta * fast_sin_internal(avg_h_rad);
         }
+
+        last_lin = cur_lin;
+        last_heading = cur_heading;
 
         if ((i % 1000) == 0) {
             mp_handle_pending(true);
         }
     }
 
-    uint32_t duration_ms = mp_hal_ticks_ms() - start_time;
-    float duration = (float)duration_ms / 1000.0f;
+    uint32_t dur = mp_hal_ticks_ms() - start_time;
+    float duration = (float)dur / 1000.0f;
 
     mp_obj_t tuple[5] = {
         mp_obj_new_float_from_f(duration),
@@ -125,7 +120,7 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     return mp_obj_new_tuple(5, tuple);
 }
 
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 2, 2, experimental_odometry_benchmark);
 
 static const mp_rom_map_elem_t experimental_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_experimental) },
