@@ -304,6 +304,16 @@ PY_EXTRA_SRC_C += $(addprefix bricks/_common/,\
 	mphalport.c \
 	)
 
+# --- CUSTOM ODOMETRY ENGINE ROUTING ---
+# Inside bricks/_common/common.mk
+PY_EXTRA_SRC_C += pybricks/experimental/pb_module_experimental.c
+
+ifeq ($(PLATFORM),prime_hub)
+    PY_EXTRA_SRC_C += pybricks/experimental/odometry_cortexm4.c
+else
+    PY_EXTRA_SRC_C += pybricks/experimental/odometry_arm9.c
+endif
+
 # Not all MCUs support thumb2 instructions.
 ifeq ($(PB_MCU_FAMILY),native)
 SRC_S +=
