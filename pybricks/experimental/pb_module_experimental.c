@@ -10,6 +10,11 @@
 #include "py/runtime.h"
 #include <math.h>
 
+// Direct access to Pybricks internal types
+#include "pybricks/pupdevices/pb_type_pupdevices_motor.h"
+#include "pybricks/robotics/pb_type_robotics_drivebase.h"
+#include <pbio/tacho.h>
+
 #if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
     #define IS_CORTEX_M 1
     #define ACCEL_RAM __attribute__((section(".data"), noinline))
@@ -48,7 +53,7 @@ ACCEL_RAM static float fast_sin_internal(float theta) {
     #endif
 }
 
-// Helper to safely unpack hardware values regardless of Pybricks version
+// Helper to safely unpack hardware values
 static float get_float_from_obj(mp_obj_t obj) {
     if (MP_OBJ_IS_SMALL_INT(obj)) {
         return (float)MP_OBJ_SMALL_INT_VALUE(obj);
@@ -60,35 +65,36 @@ static float get_float_from_obj(mp_obj_t obj) {
 }
 
 // -----------------------------------------------------------------------------
-// The "No-Tax" Odometry Benchmark
+// The "Bare Metal" Odometry Benchmark
 // -----------------------------------------------------------------------------
 static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
-    // 1. Unpack Python Arguments
+    // 1. Unpack Arguments as RAW C-STRUCTS
     int num_iters = mp_obj_get_int(args[0]);
     float wheel_circ = get_float_from_obj(args[1]);
-    mp_obj_t right_angle_func = args[2];
-    mp_obj_t left_angle_func = args[3];
-    mp_obj_t db_angle_func = args[4];
+
+    // Cast Python objects directly to their internal C types
+    pb_type_Motor_obj_t *right_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[2]);
+    pb_type_Motor_obj_t *left_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[3]);
+    pb_type_DriveBase_obj_t *db = (pb_type_DriveBase_obj_t *)MP_OBJ_TO_PTR(args[4]);
 
     float deg_to_mm = wheel_circ / 720.0f;
-
-    // State variables
     float robot_x = 0.0f, robot_y = 0.0f;
-    float last_linear = 0.0f;
-    float last_heading = 0.0f;
+    float last_linear = 0.0f, last_heading = 0.0f;
 
     uint32_t start_time = mp_hal_ticks_ms();
 
-    // 2. The Core High-Speed C Loop
+    // 2. The High-Speed Loop (Zero Python Callbacks)
     for (int i = 0; i < num_iters; i++) {
+        // Direct pointer access to encoder angles
+        int32_t r_ang, l_ang;
+        pbio_tacho_get_angle(right_motor->tacho, &r_ang);
+        pbio_tacho_get_angle(left_motor->tacho, &l_ang);
 
-        // Execute the exact same hardware getters as your Python script
-        float right_angle = get_float_from_obj(mp_call_function_0(right_angle_func));
-        float left_angle = get_float_from_obj(mp_call_function_0(left_angle_func));
-        float robot_heading = get_float_from_obj(mp_call_function_0(db_angle_func));
+        // Direct pointer access to DriveBase heading (no .angle() call)
+        // Note: heading is already a float in the DriveBase struct
+        float robot_heading = db->heading;
 
-        // Exactly mirroring your Python math logic
-        float current_linear = (right_angle + left_angle) * deg_to_mm;
+        float current_linear = (float)(r_ang + l_ang) * deg_to_mm;
         float linear = current_linear - last_linear;
         float heading_difference = robot_heading - last_heading;
 
@@ -97,13 +103,12 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
 
         if (fabsf(linear) > 0.0f) {
             float avg_heading_deg = last_heading - (heading_difference / 2.0f);
-            float avg_heading_rad = avg_heading_deg * 0.0174532925f; // DEG_TO_RAD
+            float avg_heading_rad = avg_heading_deg * 0.0174532925f;
 
-            robot_x += linear * fast_sin_internal(avg_heading_rad + HALF_PI_F); // cos
-            robot_y += linear * fast_sin_internal(avg_heading_rad); // sin
+            robot_x += linear * fast_sin_internal(avg_heading_rad + HALF_PI_F);
+            robot_y += linear * fast_sin_internal(avg_heading_rad);
         }
 
-        // Safety: Prevent watchdog timeouts during massive loops
         if ((i % 1000) == 0) {
             mp_handle_pending(true);
         }
@@ -112,7 +117,6 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     uint32_t duration_ms = mp_hal_ticks_ms() - start_time;
     float duration = (float)duration_ms / 1000.0f;
 
-    // 3. Return Results Tuple
     mp_obj_t tuple[5] = {
         mp_obj_new_float_from_f(duration),
         mp_obj_new_int(num_iters),
@@ -122,10 +126,9 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     };
     return mp_obj_new_tuple(5, tuple);
 }
-// Define function accepting 5 arguments
+
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
 
-// Module Globals
 static const mp_rom_map_elem_t experimental_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_experimental) },
     { MP_ROM_QSTR(MP_QSTR_odometry_benchmark), MP_ROM_PTR(&experimental_odometry_benchmark_obj) },
