@@ -21,7 +21,7 @@
     #define ACCEL_RAM
 #endif
 
-// Manually defining the minimal internal structures for cross-platform safety
+// Manually defining internal structures to ensure compilation across builds
 typedef struct _pb_type_Motor_obj_t {
     mp_obj_base_t base;
     pbio_tacho_t *tacho;
@@ -61,7 +61,7 @@ ACCEL_RAM static float fast_sin_internal(float theta) {
 }
 
 // -----------------------------------------------------------------------------
-// High-Speed Bare Metal Odometry
+// High-Speed Direct-Tacho Odometry
 // -----------------------------------------------------------------------------
 static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
     int num_iters = mp_obj_get_int(args[0]);
@@ -71,37 +71,46 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     pb_type_Motor_obj_t *left_motor = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[3]);
     pb_type_DriveBase_obj_t *db_obj = (pb_type_DriveBase_obj_t *)MP_OBJ_TO_PTR(args[4]);
 
-    float deg_to_mm = wheel_circ / 720.0f;
+    // mm per degree
+    float deg_to_mm = wheel_circ / 360.0f;
     float robot_x = 0.0f, robot_y = 0.0f;
     
     pbio_angle_t ang_l, ang_r;
+    int32_t h_mdeg;
+
+    // Initial state capture
     pbio_tacho_get_angle(left_motor->tacho, &ang_l);
     pbio_tacho_get_angle(right_motor->tacho, &ang_r);
-    
-    float last_lin = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f +
-                      (float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
-    
-    int32_t h_mdeg;
     pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
+
+    float last_l_mm = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f) * deg_to_mm;
+    float last_r_mm = ((float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
+    float last_lin = (last_l_mm + last_r_mm) / 2.0f;
     float last_heading = (float)h_mdeg / 1000.0f;
 
     uint32_t start_time = mp_hal_ticks_ms();
 
     for (int i = 0; i < num_iters; i++) {
-        // Direct hardware reads
+        // DIRECT SENSOR READS
         pbio_tacho_get_angle(left_motor->tacho, &ang_l);
         pbio_tacho_get_angle(right_motor->tacho, &ang_r);
         pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
 
+        // Convert to mm
+        float cur_l_mm = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f) * deg_to_mm;
+        float cur_r_mm = ((float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
+        
+        float cur_lin = (cur_l_mm + cur_r_mm) / 2.0f;
         float cur_heading = (float)h_mdeg / 1000.0f;
-        float cur_lin = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f +
-                         (float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
 
         float linear_delta = cur_lin - last_lin;
         float heading_delta = cur_heading - last_heading;
 
-        if (fabsf(linear_delta) > 0.001f) {
-            float avg_h_rad = (last_heading + (heading_delta / 2.0f)) * 0.01745329f;
+        // Only update if we actually moved
+        if (fabsf(linear_delta) > 0.0001f) {
+            // Average heading during the delta step for arc integration
+            float avg_h_rad = (last_heading + (heading_delta / 2.0f)) * 0.0174532925f;
+            
             robot_x += linear_delta * fast_sin_internal(avg_h_rad + HALF_PI_F);
             robot_y += linear_delta * fast_sin_internal(avg_h_rad);
         }
@@ -109,7 +118,7 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
         last_lin = cur_lin;
         last_heading = cur_heading;
 
-        // Stability Yield: Every 2000 loops, give the hub 1ms to update system tasks
+        // Stability yield
         if ((i % 2000) == 0) {
             mp_handle_pending(true);
             mp_hal_delay_ms(1);
