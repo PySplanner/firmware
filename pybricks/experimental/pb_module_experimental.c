@@ -10,8 +10,10 @@
 #include "py/runtime.h"
 #include <math.h>
 
+// Pybricks Hardware I/O Headers
 #include <pbio/tacho.h>
 #include <pbio/drivebase.h>
+#include <pbio/port.h>
 
 #if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
     #define IS_CORTEX_M 1
@@ -21,83 +23,85 @@
     #define ACCEL_RAM
 #endif
 
-// We define our own version of the objects based on the observed 
-// memory layout of the Spike Prime firmware.
-typedef struct _pb_type_Motor_obj_t {
-    mp_obj_base_t base;
-    pbio_tacho_t *tacho;
-} pb_type_Motor_obj_t;
-
-typedef struct _pb_type_DriveBase_obj_t {
-    mp_obj_base_t base;
-    pbio_drivebase_t *db;
-} pb_type_DriveBase_obj_t;
-
 // -----------------------------------------------------------------------------
-// Core Math Engine
+// Core Math Engine (Optimized MiniMax Polynomial)
 // -----------------------------------------------------------------------------
 ACCEL_RAM static float fast_sin_internal(float theta) {
-    float x = theta * 0.159154943f;
-    x = theta - (float)((int)(x + (x > 0 ? 0.5f : -0.5f))) * 6.2831853f;
-    if (x > 1.5707963f) x = 3.1415926f - x;
-    else if (x < -1.5707963f) x = -3.1415926f - x;
+    float x = theta * 0.159154943f; // INV_TWO_PI
+    x = theta - (float)((int)(x + (x > 0 ? 0.5f : -0.5f))) * 6.2831853f; // TWO_PI
+    if (x > 1.5707963f) x = 3.1415926f - x; // PI - x
+    else if (x < -1.5707963f) x = -3.1415926f - x; // -PI - x
     float x2 = x * x;
     return x * (0.99999906f + x2 * (-0.16665554f + x2 * (0.00831190f + x2 * -0.00018488f)));
 }
 
 // -----------------------------------------------------------------------------
-// High-Speed Odometry
+// High-Speed Hardware-Layer Odometry
 // -----------------------------------------------------------------------------
 static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
     int num_iters = mp_obj_get_int(args[0]);
     float wheel_circ = mp_obj_get_float(args[1]);
 
-    // Direct casting from the Python object to our defined struct
-    pb_type_Motor_obj_t *m_right = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[2]);
-    pb_type_Motor_obj_t *m_left = (pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(args[3]);
-    pb_type_DriveBase_obj_t *db_obj = (pb_type_DriveBase_obj_t *)MP_OBJ_TO_PTR(args[4]);
+    // 1. Unpack raw Port IDs from Python (e.g., ord('A') -> 65)
+    pbio_port_id_t port_right = (pbio_port_id_t)mp_obj_get_int(args[2]);
+    pbio_port_id_t port_left  = (pbio_port_id_t)mp_obj_get_int(args[3]);
+
+    // 2. Bind directly to the hardware tacho drivers
+    pbio_tacho_t *tacho_r;
+    pbio_tacho_t *tacho_l;
+    
+    // PBIO returns 0 (PBIO_SUCCESS) if the hardware exists on that port
+    if (pbio_tacho_get_tacho(port_right, &tacho_r) != 0 || 
+        pbio_tacho_get_tacho(port_left, &tacho_l) != 0) {
+        mp_printf(&mp_plat_print, "C-ERROR: Failed to bind to hardware tachos on specified ports.\n");
+        mp_obj_t err[5] = {mp_obj_new_float_from_f(0), mp_obj_new_int(0), mp_obj_new_float_from_f(0), mp_obj_new_float_from_f(0), mp_obj_new_float_from_f(0)};
+        return mp_obj_new_tuple(5, err);
+    }
+
+    // 3. Unpack the DriveBase heading function
+    mp_obj_t db_heading_func = args[4];
 
     float deg_to_mm = wheel_circ / 360.0f;
     float robot_x = 0.0f, robot_y = 0.0f;
     
     pbio_angle_t ang_l, ang_r;
-    int32_t h_mdeg;
-
-    // Initial capture
-    pbio_tacho_get_angle(m_left->tacho, &ang_l);
-    pbio_tacho_get_angle(m_right->tacho, &ang_r);
-    pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
+    
+    // Capture initial hardware state
+    pbio_tacho_get_angle(tacho_l, &ang_l);
+    pbio_tacho_get_angle(tacho_r, &ang_r);
+    int32_t last_heading_deg = mp_obj_get_int(mp_call_function_0(db_heading_func));
 
     float last_l_mm = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f) * deg_to_mm;
     float last_r_mm = ((float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
     float last_lin = (last_l_mm + last_r_mm) / 2.0f;
-    float last_heading = (float)h_mdeg / 1000.0f;
 
     uint32_t start_time = mp_hal_ticks_ms();
 
     for (int i = 0; i < num_iters; i++) {
-        // We use the pointers we grabbed directly from the structs
-        pbio_tacho_get_angle(m_left->tacho, &ang_l);
-        pbio_tacho_get_angle(m_right->tacho, &ang_r);
-        pbio_drivebase_get_state_user(db_obj->db, NULL, NULL, &h_mdeg, NULL);
+        // Direct C-speed hardware reads
+        pbio_tacho_get_angle(tacho_l, &ang_l);
+        pbio_tacho_get_angle(tacho_r, &ang_r);
+        
+        // Single VM call for complex gyro fusion heading
+        int32_t cur_heading_deg = mp_obj_get_int(mp_call_function_0(db_heading_func));
 
         float cur_l_mm = ((float)ang_l.rotations * 360.0f + (float)ang_l.millidegrees / 1000.0f) * deg_to_mm;
         float cur_r_mm = ((float)ang_r.rotations * 360.0f + (float)ang_r.millidegrees / 1000.0f) * deg_to_mm;
         float cur_lin = (cur_l_mm + cur_r_mm) / 2.0f;
-        float cur_heading = (float)h_mdeg / 1000.0f;
 
         float linear_delta = cur_lin - last_lin;
-        float heading_delta = cur_heading - last_heading;
+        float heading_delta = (float)(cur_heading_deg - last_heading_deg);
 
         if (fabsf(linear_delta) > 0.0001f) {
-            float avg_h_rad = (last_heading + (heading_delta / 2.0f)) * 0.01745329f;
-            robot_x += linear_delta * fast_sin_internal(avg_h_rad + 1.5707963f);
-            robot_y += linear_delta * fast_sin_internal(avg_h_rad);
+            float avg_h_rad = ((float)last_heading_deg + (heading_delta / 2.0f)) * 0.01745329f;
+            robot_x += linear_delta * fast_sin_internal(avg_h_rad + 1.5707963f); // cos
+            robot_y += linear_delta * fast_sin_internal(avg_h_rad); // sin
         }
 
         last_lin = cur_lin;
-        last_heading = cur_heading;
+        last_heading_deg = cur_heading_deg;
 
+        // Yield to maintain BLE connection and reset watchdog
         if ((i % 2000) == 0) {
             mp_handle_pending(true);
             mp_hal_delay_ms(1);
@@ -105,10 +109,12 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     }
 
     uint32_t dur = mp_hal_ticks_ms() - start_time;
+    float duration_s = (float)dur / 1000.0f;
+    
     mp_obj_t tuple[5] = {
-        mp_obj_new_float_from_f((float)dur / 1000.0f),
+        mp_obj_new_float_from_f(duration_s),
         mp_obj_new_int(num_iters),
-        mp_obj_new_float_from_f((float)num_iters / ((float)dur / 1000.0f)),
+        mp_obj_new_float_from_f((float)num_iters / duration_s),
         mp_obj_new_float_from_f(robot_x),
         mp_obj_new_float_from_f(robot_y)
     };
