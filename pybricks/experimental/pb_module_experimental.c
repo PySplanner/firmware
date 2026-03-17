@@ -13,14 +13,25 @@
 #include <pbio/tacho.h>
 #include <pbio/drivebase.h>
 
-// These headers contain the "Getters" we need
-#include "pybricks/pupdevices.h" 
-#include "pybricks/robotics.h"
+// MANUALLY PROTOTYPE THE FIRMWARE GETTERS
+// This bypasses the header visibility issues while remaining safe.
+struct _pbio_tacho_t; 
+struct _pbio_drivebase_t;
+extern struct _pbio_tacho_t *pb_type_Motor_get_tacho(mp_obj_t obj);
+extern struct _pbio_drivebase_t *pb_type_drivebase_get_drivebase(mp_obj_t obj);
+
+#if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
+    #define IS_CORTEX_M 1
+    #define ACCEL_RAM __attribute__((section(".data"), noinline))
+#else
+    #define IS_CORTEX_M 0
+    #define ACCEL_RAM
+#endif
 
 // -----------------------------------------------------------------------------
 // Core Math Engine
 // -----------------------------------------------------------------------------
-static float fast_sin_internal(float theta) {
+ACCEL_RAM static float fast_sin_internal(float theta) {
     float x = theta * 0.159154943f;
     x = theta - (float)((int)(x + (x > 0 ? 0.5f : -0.5f))) * 6.2831853f;
     if (x > 1.5707963f) x = 3.1415926f - x;
@@ -36,11 +47,10 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
     int num_iters = mp_obj_get_int(args[0]);
     float wheel_circ = mp_obj_get_float(args[1]);
 
-    // Use the OFFICIAL Pybricks getters to retrieve the C-pointers.
-    // This is the "Nuclear" fix: it works regardless of struct padding.
-    pbio_tacho_t *right_tacho = pb_type_Motor_get_tacho(args[2]);
-    pbio_tacho_t *left_tacho = pb_type_Motor_get_tacho(args[3]);
-    pbio_drivebase_t *db = pb_type_drivebase_get_drivebase(args[4]);
+    // Retrieve pointers using the prototyped firmware functions
+    pbio_tacho_t *right_tacho = (pbio_tacho_t *)pb_type_Motor_get_tacho(args[2]);
+    pbio_tacho_t *left_tacho = (pbio_tacho_t *)pb_type_Motor_get_tacho(args[3]);
+    pbio_drivebase_t *db = (pbio_drivebase_t *)pb_type_drivebase_get_drivebase(args[4]);
 
     float deg_to_mm = wheel_circ / 360.0f;
     float robot_x = 0.0f, robot_y = 0.0f;
@@ -82,7 +92,7 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
         last_lin = cur_lin;
         last_heading = cur_heading;
 
-        // Yield for stability
+        // Yield for system stability every 2000 loops
         if ((i % 2000) == 0) {
             mp_handle_pending(true);
             mp_hal_delay_ms(1);
