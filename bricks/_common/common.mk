@@ -300,9 +300,7 @@ PY_EXTRA_SRC_C += $(addprefix bricks/_common/,\
 
 # --- UNIFIED ODOMETRY ENGINE (3-LAYER ARCHITECTURE) ---
 # Compiling both the module wrapper and the logic core
-PY_EXTRA_SRC_C += \
-    pybricks/experimental/pb_module_experimental.c \
-    pybricks/experimental/odometry_core.c
+PY_EXTRA_SRC_C += pybricks/experimental/odometry_core.c
 
 # Not all MCUs support thumb2 instructions.
 ifeq ($(PB_MCU_FAMILY),native)

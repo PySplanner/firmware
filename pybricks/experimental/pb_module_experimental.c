@@ -10,7 +10,7 @@
 #define STATIC static
 #endif
 
-// 1. The function logic
+// 1. The actual function logic
 STATIC mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
     int num_iters = mp_obj_get_int(args[0]);
     float wheel_circ = mp_obj_get_float(args[1]);
@@ -22,21 +22,12 @@ STATIC mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
 
-// 2. The Globals Table
+// 2. The Globals Table - the system looks for the name "<filename>_globals"
+// Since your file is pb_module_experimental.c, it looks for pb_module_experimental_globals
 STATIC const mp_rom_map_elem_t pb_module_experimental_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_odometry_benchmark), MP_ROM_PTR(&experimental_odometry_benchmark_obj) },
 };
-
-// 3. THE FIX: Define the dict WITHOUT 'STATIC'. 
-// This makes it a globally visible symbol that the linker can grab, 
-// and stops the compiler from complaining that it's "unused" inside this file.
-MP_DEFINE_CONST_DICT(pb_module_experimental_globals, pb_module_experimental_globals_table);
-
-// We define the module struct here so the linker finds it.
-// We DO NOT use STATIC, and we DO NOT use MP_REGISTER_MODULE.
-const mp_obj_module_t pb_module_experimental = {
-    .base = { &mp_type_module },
-    .globals = (mp_obj_dict_t *)&pb_module_experimental_globals,
-};
+// This is the specific symbol the linker is clashing on - we keep it STATIC here.
+STATIC MP_DEFINE_CONST_DICT(pb_module_experimental_globals, pb_module_experimental_globals_table);
 
 #endif // PYBRICKS_PY_EXPERIMENTAL
