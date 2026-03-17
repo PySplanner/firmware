@@ -6,7 +6,6 @@
 
 #include "pybricks/experimental/odometry.h"
 
-// Fallback for STATIC if needed
 #ifndef STATIC
 #define STATIC static
 #endif
@@ -24,13 +23,20 @@ STATIC mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
 STATIC MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
 
 // 2. The Globals Table
-// The Pybricks generator looks for a variable named: <filename_prefix>_globals
 STATIC const mp_rom_map_elem_t pb_module_experimental_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_odometry_benchmark), MP_ROM_PTR(&experimental_odometry_benchmark_obj) },
 };
-STATIC MP_DEFINE_CONST_DICT(pb_module_experimental_globals, pb_module_experimental_globals_table);
 
-// NOTE: DO NOT define 'const mp_obj_module_t pb_module_experimental' here.
-// The build system generates it in build/genhdr/moduledefs.h automatically.
+// 3. THE FIX: Define the dict WITHOUT 'STATIC'. 
+// This makes it a globally visible symbol that the linker can grab, 
+// and stops the compiler from complaining that it's "unused" inside this file.
+MP_DEFINE_CONST_DICT(pb_module_experimental_globals, pb_module_experimental_globals_table);
+
+// We define the module struct here so the linker finds it.
+// We DO NOT use STATIC, and we DO NOT use MP_REGISTER_MODULE.
+const mp_obj_module_t pb_module_experimental = {
+    .base = { &mp_type_module },
+    .globals = (mp_obj_dict_t *)&pb_module_experimental_globals,
+};
 
 #endif // PYBRICKS_PY_EXPERIMENTAL
