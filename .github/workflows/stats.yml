@@ -1,9 +1,8 @@
 name: Stats
 
 on:
-  push:
-    branches:
-      - "master"
+  workflow_dispatch:
+  
 env:
   MAKEOPTS: -j2
 
