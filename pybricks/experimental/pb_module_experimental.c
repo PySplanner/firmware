@@ -1,9 +1,6 @@
 #include "py/mpconfig.h"
 #include "py/obj.h"
 #include "py/runtime.h"
-
-#if PYBRICKS_PY_EXPERIMENTAL
-
 #include "pybricks/experimental/odometry.h"
 
 static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *args) {
@@ -18,7 +15,6 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
 
 const mp_rom_map_elem_t pb_module_experimental_globals_table[] = {
-    // This line allows Python to identify the module name during import
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_experimental) },
     { MP_ROM_QSTR(MP_QSTR_odometry_benchmark), MP_ROM_PTR(&experimental_odometry_benchmark_obj) },
 };
@@ -28,5 +24,3 @@ const mp_obj_module_t pb_module_experimental = {
     .base = { &mp_type_module },
     .globals = (mp_obj_dict_t *)&pb_module_experimental_globals,
 };
-
-#endif // PYBRICKS_PY_EXPERIMENTAL
