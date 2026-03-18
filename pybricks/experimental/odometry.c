@@ -12,6 +12,9 @@
 #include <pbio/servo.h>
 #include "pybricks/experimental/odometry.h"
 
+// THE LIFELINE: Bring in the Pybricks background task runner!
+extern bool pbio_os_run_processes_once(void);
+
 // Hardware acceleration for the Spike Prime (FPU + RAM execution)
 #if defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7EM__)
 #define ACCEL_RAM __attribute__((section(".data"), noinline))
@@ -42,13 +45,10 @@ mp_obj_t calculate_odometry(int num_iters, float wheel_circ, float axle_track, m
     float ry = 0.0f;
     float rh = 0.0f;
 
-    // THE MAGIC: Extract the raw Pybricks hardware struct from the Python object.
-    // This entirely removes the Python interpreter from the loop.
     pbio_servo_t *srv_r = ((pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(right_motor_obj))->srv;
     pbio_servo_t *srv_l = ((pb_type_Motor_obj_t *)MP_OBJ_TO_PTR(left_motor_obj))->srv;
 
     int32_t last_r, last_l, unused_rate;
-    // Direct memory read to initialize
     pbio_servo_get_state_user(srv_r, &last_r, &unused_rate);
     pbio_servo_get_state_user(srv_l, &last_l, &unused_rate);
 
@@ -57,30 +57,34 @@ mp_obj_t calculate_odometry(int num_iters, float wheel_circ, float axle_track, m
     for (int i = 0; i < num_iters; i++) {
         int32_t cur_r, cur_l;
         
-        // 1. Direct memory read (Instantaneous, 0 Python overhead)
+        // 1. Instant Memory read
         pbio_servo_get_state_user(srv_r, &cur_r, &unused_rate);
         pbio_servo_get_state_user(srv_l, &cur_l, &unused_rate);
 
-        // 2. FPU Delta Math
-        float dR = (float)(cur_r - last_r) * deg_to_mm;
-        float dL = (float)(cur_l - last_l) * deg_to_mm;
-        float dD = (dR + dL) * 0.5f;
-        float dH = (dR - dL) * inv_axle_track;
+        // 2. THE BYPASS: Only run heavy FPU math if the wheels physically moved!
+        int32_t delta_r = cur_r - last_r;
+        int32_t delta_l = cur_l - last_l;
 
-        // 3. RK2 Integration
-        if (dD != 0.0f || dH != 0.0f) {
+        if (delta_r != 0 || delta_l != 0) {
+            float dR = (float)delta_r * deg_to_mm;
+            float dL = (float)delta_l * deg_to_mm;
+            float dD = (dR + dL) * 0.5f;
+            float dH = (dR - dL) * inv_axle_track;
+
             float avg_h = rh + (dH * 0.5f);
             rx += dD * fast_sin_internal(avg_h + 1.5707963f); // cos
             ry += dD * fast_sin_internal(avg_h);              // sin
             rh += dH;
+
+            last_r = cur_r;
+            last_l = cur_l;
         }
 
-        last_r = cur_r;
-        last_l = cur_l;
-
-        // 4. Polling (bitwise check is faster than modulo)
-        if ((i & 0x3FF) == 0) {
+        // 3. THE LIFELINE: Pump the Pybricks OS so the motors actually drive
+        // (Bitwise & is a lightning-fast way to do % 256)
+        if ((i & 0xFF) == 0) {
             mp_handle_pending(true);
+            while (pbio_os_run_processes_once()) {}
         }
     }
 
