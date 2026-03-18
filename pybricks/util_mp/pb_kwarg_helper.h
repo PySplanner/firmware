@@ -43,9 +43,9 @@
 // Generate table entry from an argument name, its requirements, and its default value
 #define GET_ARG_NAME(name, required, value) name##_in
 #define GET_ARG_SPEC(name, required, value) { \
-        .qst = MAKE_QSTR(name), \
-        .flags = required, \
-        .defval = value, \
+            .qst = MAKE_QSTR(name), \
+            .flags = required, \
+            .defval = value, \
 }
 
 // Unpack a table entry into three arguments
@@ -56,10 +56,10 @@
 
 // Create the arguments table, parse it, and declare mp_obj_t's for each one
 #define PB_PARSE_GENERIC(n_args, pos_args, kw_args, n_ignore, ...) static const mp_arg_t allowed_args[] = { \
-        PB_FOR_EACH_IDX(PB_ARG_DO, __VA_ARGS__) \
+            PB_FOR_EACH_IDX(PB_ARG_DO, __VA_ARGS__) \
 }; \
-    PB_PARSE_ARGS(parsed_args, n_args, pos_args, kw_args, allowed_args, n_ignore); \
-    PB_FOR_EACH_IDX(GEN_ARG_OBJ, __VA_ARGS__)
+        PB_PARSE_ARGS(parsed_args, n_args, pos_args, kw_args, allowed_args, n_ignore); \
+        PB_FOR_EACH_IDX(GEN_ARG_OBJ, __VA_ARGS__)
 // Parse the arguments of a function
 #define PB_PARSE_ARGS_FUNCTION(n_args, pos_args, kw_args, ...) \
         PB_PARSE_GENERIC(n_args, pos_args, kw_args, 0, __VA_ARGS__)

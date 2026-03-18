@@ -371,26 +371,26 @@ void pbsys_main_run_program(pbsys_main_program_t *program) {
     // Runs the requested downloaded or builtin user program.
     switch (program->id) {
 
-        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
+    #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_REPL
         case PBIO_PYBRICKS_USER_PROGRAM_ID_REPL:
             // Run REPL with everything auto-imported.
             pb_package_pybricks_init(true);
             run_repl();
             break;
-        #endif
+    #endif
 
-        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_PORT_VIEW && MICROPY_MODULE_FROZEN
+    #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_PORT_VIEW && MICROPY_MODULE_FROZEN
         case PBIO_PYBRICKS_USER_PROGRAM_ID_PORT_VIEW:
             pb_package_pybricks_init(false);
             pyexec_frozen_module("_builtin_port_view.py", false);
             break;
-        #endif
+    #endif
 
-        #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_IMU_CALIBRATION
+    #if PBSYS_CONFIG_FEATURE_BUILTIN_USER_PROGRAM_IMU_CALIBRATION
         case PBIO_PYBRICKS_USER_PROGRAM_ID_IMU_CALIBRATION:
             // Todo
             break;
-        #endif
+    #endif
 
         default:
             // Init Pybricks package without auto-import.

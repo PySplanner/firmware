@@ -26,15 +26,15 @@
 #define MICROPY_PY_SELECT                       (PYBRICKS_OPT_EXTRA_LEVEL1)
 
 #define MICROPY_PY_ERRNO_LIST \
-    X(EPERM) \
-    X(EIO) \
-    X(EBUSY) \
-    X(ENODEV) \
-    X(EINVAL) \
-    X(EOPNOTSUPP) \
-    X(EAGAIN) \
-    X(ETIMEDOUT) \
-    X(ECANCELED) \
+        X(EPERM) \
+        X(EIO) \
+        X(EBUSY) \
+        X(ENODEV) \
+        X(EINVAL) \
+        X(EOPNOTSUPP) \
+        X(EAGAIN) \
+        X(ETIMEDOUT) \
+        X(ECANCELED) \
 
 #if PYBRICKS_OPT_EXTRA_LEVEL2
 #define MICROPY_QSTR_BYTES_IN_HASH              (2)
@@ -156,16 +156,16 @@ typedef long mp_off_t;
 #endif
 
 #define MICROPY_VM_HOOK_LOOP \
-    do { \
-        PYBRICKS_VM_HOOK_LOOP_EXTRA \
-        extern bool pbio_os_run_processes_once(void); \
-        pbio_os_run_processes_once(); \
-    } while (0);
+        do { \
+            PYBRICKS_VM_HOOK_LOOP_EXTRA \
+            extern bool pbio_os_run_processes_once(void); \
+            pbio_os_run_processes_once(); \
+        } while (0);
 
 #define MICROPY_GC_HOOK_LOOP(i) do { \
-    if (((i) & 0xf) == 0) { \
-        MICROPY_VM_HOOK_LOOP \
-    } \
+            if (((i) & 0xf) == 0) { \
+                MICROPY_VM_HOOK_LOOP \
+            } \
 } while (0)
 
 #define MICROPY_INTERNAL_EVENT_HOOK \
