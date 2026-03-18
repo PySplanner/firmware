@@ -18,9 +18,8 @@ static mp_obj_t experimental_odometry_benchmark(size_t n_args, const mp_obj_t *a
 static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_odometry_benchmark_obj, 5, 5, experimental_odometry_benchmark);
 
 const mp_rom_map_elem_t pb_module_experimental_globals_table[] = {
-    // THE MISSING LINK: MicroPython requires the module to declare its own name
+    // This line allows Python to identify the module name during import
     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_experimental) },
-    
     { MP_ROM_QSTR(MP_QSTR_odometry_benchmark), MP_ROM_PTR(&experimental_odometry_benchmark_obj) },
 };
 MP_DEFINE_CONST_DICT(pb_module_experimental_globals, pb_module_experimental_globals_table);
