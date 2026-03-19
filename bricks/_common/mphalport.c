@@ -17,6 +17,11 @@
 #include "py/mpconfig.h"
 #include "py/stream.h"
 
+// Bring in our background hook
+#if PYBRICKS_PY_EXPERIMENTAL
+extern void pb_background_odometry_update(void);
+#endif
+
 // Core delay function that does an efficient sleep and may switch thread context.
 // We must have the GIL.
 void mp_hal_delay_ms(mp_uint_t Delay) {
@@ -28,6 +33,12 @@ void mp_hal_delay_ms(mp_uint_t Delay) {
         // raise an exception, switch threads or enter sleep mode (waiting for
         // (at least) the SysTick interrupt).
         mp_event_wait_indefinite();
+        
+        // ---> EXPERIMENTAL ODOMETRY HOOK <---
+        #if PYBRICKS_PY_EXPERIMENTAL
+        pb_background_odometry_update();
+        #endif
+
     } while (pbdrv_clock_get_ms() - start < Delay);
 }
 
@@ -49,6 +60,11 @@ int mp_hal_stdin_rx_chr(void) {
     // wait for rx interrupt
     while (size = 1, pbsys_host_stdin_read(&c, &size) != PBIO_SUCCESS) {
         mp_event_wait_indefinite();
+        
+        // ---> EXPERIMENTAL ODOMETRY HOOK <---
+        #if PYBRICKS_PY_EXPERIMENTAL
+        pb_background_odometry_update();
+        #endif
     }
 
     return c;
@@ -76,6 +92,11 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
         // Allow long prints to be interrupted.
         if (remaining) {
             mp_event_wait_indefinite();
+            
+            // ---> EXPERIMENTAL ODOMETRY HOOK <---
+            #if PYBRICKS_PY_EXPERIMENTAL
+            pb_background_odometry_update();
+            #endif
         }
     }
 
