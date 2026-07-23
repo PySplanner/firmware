@@ -8,6 +8,7 @@ env:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   upload_release:
@@ -17,7 +18,7 @@ jobs:
       - name: Install cross-compiler
         run: sudo apt-get update && sudo apt-get install --yes gcc-arm-none-eabi
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: true
           fetch-depth: 0
@@ -41,7 +42,13 @@ jobs:
           poetry run make $MAKEOPTS -C bricks/nxt
           poetry run make $MAKEOPTS -C bricks/ev3
       - name: Get tag
-        run: echo "GITHUB_TAG=${GITHUB_REF#*refs/tags/}" >> $GITHUB_ENV
+        run: |
+          TAG="${GITHUB_REF#*refs/tags/}"
+          NPM_VERSION=$(echo "${TAG#v}" | sed 's/\([0-9]\)a\([0-9]\)/\1-alpha.\2/;s/\([0-9]\)b\([0-9]\)/\1-beta.\2/;s/\([0-9]\)rc\([0-9]\)/\1-rc.\2/')
+          NPM_TAG=$(echo "$NPM_VERSION" | grep -q '-' && echo 'next' || echo 'latest')
+          echo "GITHUB_TAG=$TAG" >> $GITHUB_ENV
+          echo "NPM_VERSION=$NPM_VERSION" >> $GITHUB_ENV
+          echo "NPM_TAG=$NPM_TAG" >> $GITHUB_ENV
       - name: Create Release and Upload Assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -53,14 +60,35 @@ jobs:
             PRERELEASE_FLAG=""
           fi
           HUBS="movehub cityhub technichub primehub essentialhub nxt ev3"
+          mkdir -p npm/firmware/build
           for HUB in $HUBS; do
             NEW_FILENAME="./bricks/$HUB/build/pybricks-$HUB-${{ env.GITHUB_TAG }}.zip"
+            cp "./bricks/$HUB/build/firmware.zip" "npm/firmware/build/$HUB.zip"
             mv "./bricks/$HUB/build/firmware.zip" "$NEW_FILENAME"
             ASSETS="$ASSETS $NEW_FILENAME"
           done
+          VERSION="${tag#v}"
+          if [[ -z "$PRERELEASE_FLAG" ]]; then
+            RELEASE_NOTES=$(awk -v ver="$VERSION" '/^## \[/{if ($0 ~ "^## \\[" ver "\\]") found=1; else if (found && $0 !~ /[0-9][abc][0-9]/) exit} found{print}' CHANGELOG.md)
+          else
+            RELEASE_NOTES=$(awk -v ver="$VERSION" '/^## \[/{if ($0 ~ "^## \\[" ver "\\]") found=1; else if (found && printed) exit} found{printed=1; print}' CHANGELOG.md)
+          fi
           gh release create "$tag" \
               --repo="$GITHUB_REPOSITORY" \
               --title="${tag#v}" \
-              -F CHANGELOG.md \
+              --notes "$RELEASE_NOTES" \
               $PRERELEASE_FLAG \
               $ASSETS
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Publish npm firmware package
+        working-directory: npm/firmware
+        run: |
+          npm version --no-git-tag-version "${{ env.NPM_VERSION }}"
+          echo "export const FIRMWARE_TAG = '${{ env.GITHUB_TAG }}';" > version.ts
+          yarn install
+          npx tsc
+          npm publish --tag "${{ env.NPM_TAG }}"

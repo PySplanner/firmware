@@ -33,8 +33,8 @@
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_STM32        (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_CC2564C      (1)
-#define PBDRV_CONFIG_BLUETOOTH_BTSTACK_HUB_KIND     LWP3_HUB_KIND_TECHNIC_SMALL
-#undef PBDRV_CONFIG_BLUETOOTH_BTSTACK_HUB_VARIANT_ADDR
+#define PBDRV_CONFIG_HUB_KIND                       PBIO_PYBRICKS_HUB_KIND_ESSENTIAL
+#define PBDRV_CONFIG_HUB_VARIANT                    0x0000
 
 #define PBDRV_CONFIG_BLOCK_DEVICE                   (1)
 #define PBDRV_CONFIG_BLOCK_DEVICE_RAM_SIZE          (258 * 1024)
@@ -61,7 +61,7 @@
 #define PBDRV_CONFIG_COUNTER                        (0)
 
 #define PBDRV_CONFIG_GPIO                           (1)
-#define PBDRV_CONFIG_GPIO_STM32F4                   (1)
+#define PBDRV_CONFIG_GPIO_STM32                     (1)
 
 #define PBDRV_CONFIG_IMU                            (1)
 #define PBDRV_CONFIG_IMU_LSM6S3TR_C_STM32           (1)
@@ -93,16 +93,18 @@
 
 #define PBDRV_CONFIG_RESET                          (1)
 #define PBDRV_CONFIG_RESET_STM32                    (1)
-#define PBDRV_CONFIG_RESET_STM32_HAS_BLE_BOOTLOADER (0)
+// Uses a variant of mboot, but not the second stage
+// bootloader as used on prime hub, so we require that
+// the user enters update mode manually as we also used
+// to do on primehub.
+#define PBDRV_CONFIG_RESET_STM32_HAS_MBOOT_BOOTLOADER (0)
 
 #define PBDRV_CONFIG_UART                           (1)
 #define PBDRV_CONFIG_UART_DEBUG_FIRST_PORT          (0)
-#define PBDRV_CONFIG_UART_STM32F4_LL_IRQ            (1)
-#define PBDRV_CONFIG_UART_STM32F4_LL_IRQ_NUM_UART   (2)
+#define PBDRV_CONFIG_UART_STM32_LL_IRQ              (1)
+#define PBDRV_CONFIG_UART_STM32_LL_IRQ_NUM_UART     (2)
 
 #define PBDRV_CONFIG_USB                            (1)
-#define PBDRV_CONFIG_USB_MAX_PACKET_SIZE            (64)
-#define PBDRV_CONFIG_USB_NUM_BUFFERED_PACKETS       (2)
 #define PBDRV_CONFIG_USB_VID                        LEGO_USB_VID
 #define PBDRV_CONFIG_USB_PID                        LEGO_USB_PID_SPIKE_ESSENTIAL
 #define PBDRV_CONFIG_USB_MFG_STR                    LEGO_USB_MFG_STR

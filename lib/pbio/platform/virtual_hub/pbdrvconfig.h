@@ -16,8 +16,10 @@
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK                      (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_NUM_LE_HOSTS         (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_POSIX                (1)
-#define PBDRV_CONFIG_BLUETOOTH_BTSTACK_HUB_KIND             (LWP3_HUB_KIND_TECHNIC_LARGE)
 #endif // PBDRV_CONFIG_RUN_ON_CI
+
+#define PBDRV_CONFIG_HUB_KIND                               (PBIO_PYBRICKS_HUB_KIND_PRIME)
+#define PBDRV_CONFIG_HUB_VARIANT                            (0x0000)
 
 #define PBDRV_CONFIG_BUTTON                                 (1)
 #define PBDRV_CONFIG_BUTTON_VIRTUAL                         (1)
@@ -59,7 +61,5 @@
 
 #define PBDRV_CONFIG_USB                                    (1)
 #define PBDRV_CONFIG_USB_SIMULATION                         (1)
-#define PBDRV_CONFIG_USB_MAX_PACKET_SIZE                    (64)
-#define PBDRV_CONFIG_USB_NUM_BUFFERED_PACKETS               (2)
 #define PBDRV_CONFIG_USB_MFG_STR                            u"Pybricks"
 #define PBDRV_CONFIG_USB_PROD_STR                           u"Virtual Hub"

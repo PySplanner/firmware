@@ -609,6 +609,7 @@ pbio_error_t pbdrv_bluetooth_process_thread(pbio_os_state_t *state, void *contex
 
     // Force shutdown if Bluetooth fails to deinit gracefully.
     if (pbdrv_bluetooth_shutting_down && pbio_os_timer_is_expired(&pbdrv_bluetooth_shutting_down_watchdog)) {
+        DEBUG_PRINT("Forcing Bluetooth shutdown.\n");
         goto shutdown;
     }
 
@@ -699,10 +700,16 @@ init:
 
 shutdown:
 
-    PBIO_OS_AWAIT(state, &sub, pbdrv_bluetooth_controller_reset(&sub, &timer));
-
+    // Invalidate goto shutdown, so we remain past the checkpoint set in this await.
     pbdrv_bluetooth_shutting_down = false;
+
+    PBIO_OS_AWAIT(state, &sub, pbdrv_bluetooth_controller_reset(&sub, &timer));
     pbio_busy_count_down();
+
+    #if DEBUG
+    DEBUG_PRINT("Done resetting Bluetooth controller.\n");
+    PBIO_OS_AWAIT_MS(state, &timer, 100);
+    #endif
 
     // Due to the nested logic of the Bluetooth process, this may be called
     // again after completion. Re-enter here if that happens for safety, so we
@@ -762,6 +769,8 @@ void pbdrv_bluetooth_deinit(void) {
     if (!pbdrv_bluetooth_hci_is_enabled()) {
         return;
     }
+
+    DEBUG_PRINT("Bluetooth deinit requested.\n");
 
     // Ask Bluetooth process to proceed to shutdown.
     pbio_os_timer_set(&pbdrv_bluetooth_shutting_down_watchdog, 3000);

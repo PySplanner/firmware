@@ -80,19 +80,54 @@
       "MIMode": "gdb",
       "setupCommands": [
         {
-          "description": "Enable pretty-printing for gdb",
-          "text": "-enable-pretty-printing",
-          "ignoreFailures": true
-        },
-        {
-          "description": "Ignore SIGUSR1 signal",
-          "text": "handle SIGUSR1 nostop noprint pass",
-          "ignoreFailures": false
-        },
-        {
-          "description": "Ignore timer signal",
-          "text": "handle SIG34 noprint pass",
-          "ignoreFailures": false
+            "id": "pbioTestName",
+            "description": "test name",
+            "type": "pickString",
+            // should match output of `./test-pbio.sh --list-tests`
+            "options": [
+                "src/port_lump/test_boost_color_distance_sensor",
+                "src/port_lump/test_boost_interactive_motor",
+                "src/port_lump/test_technic_large_motor",
+                "src/port_lump/test_technic_xl_motor",
+                "drv/bluetooth/test_btstack_run_loop_timer",
+                "drv/bluetooth/test_btstack_run_loop_poll",
+                "drv/pwm/test_pwm_get",
+                "drv/pwm/test_pwm_set_duty",
+                "src/angle/test_scaling",
+                "src/angle/test_rounding",
+                "src/battery/test_battery_voltage_to_duty",
+                "src/battery/test_battery_voltage_from_duty",
+                "src/battery/test_battery_voltage_from_duty_pct",
+                "src/color/test_rgb_to_hsv",
+                "src/color/test_hsv_to_rgb",
+                "src/color/test_color_to_hsv",
+                "src/color/test_color_to_rgb",
+                "src/color/test_color_hsv_compression",
+                "src/drivebase/test_drivebase_basics",
+                "src/light/test_light_animation",
+                "src/light/test_color_light",
+                "src/light/test_light_matrix",
+                "src/light/test_light_matrix_rotation",
+                "src/math/test_atan2",
+                "src/math/test_clamp",
+                "src/math/test_mult_and_scale",
+                "src/math/test_sqrt",
+                "src/servo/test_servo_basics",
+                "src/servo/test_servo_stall",
+                "src/servo/test_servo_gearing",
+                "src/task/test_no_yield_task",
+                "src/task/test_task_removed_when_complete",
+                "src/task/test_task_cancelation",
+                "src/task/test_task_removal",
+                "src/trajectory/test_simple_trajectory",
+                "src/trajectory/test_infinite_trajectory",
+                "src/trajectory/test_position_trajectory",
+                "src/util/test_uuid128_reverse_compare",
+                "src/util/test_uuid128_reverse_copy",
+                "src/util/test_oneshot",
+                "sys/bluetooth/test_bluetooth",
+                "sys/status/test_status",
+            ]
         }
       ],
       "preLaunchTask": "build virtualhub (debug)"

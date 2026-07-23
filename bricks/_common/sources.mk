@@ -11,7 +11,6 @@ LWRB_SRC_C = lib/lwrb/src/lwrb/lwrb.c
 
 PYBRICKS_PYBRICKS_SRC_C = $(addprefix pybricks/,\
 	common/pb_type_battery.c \
-	common/pb_type_ble.c \
 	common/pb_type_charger.c \
 	common/pb_type_colorlight_external.c \
 	common/pb_type_colorlight_internal.c \
@@ -52,6 +51,8 @@ PYBRICKS_PYBRICKS_SRC_C = $(addprefix pybricks/,\
 	iodevices/pb_type_iodevices_xbox_controller.c \
 	iodevices/pb_type_uart_device.c \
 	messaging/pb_module_messaging.c \
+	messaging/pb_type_app_data.c \
+	messaging/pb_type_ble_radio.c \
 	nxtdevices/pb_module_nxtdevices.c \
 	nxtdevices/pb_type_nxtdevices_colorsensor.c \
 	nxtdevices/pb_type_nxtdevices_energymeter.c \
@@ -88,7 +89,6 @@ PYBRICKS_PYBRICKS_SRC_C = $(addprefix pybricks/,\
 	robotics/pb_type_drivebase.c \
 	robotics/pb_type_spikebase.c \
 	tools/pb_module_tools.c \
-	tools/pb_type_app_data.c \
 	tools/pb_type_async.c \
 	tools/pb_type_matrix.c \
 	tools/pb_type_stopwatch.c \
@@ -150,9 +150,7 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	drv/gpio/gpio_ev3.c \
 	drv/gpio/gpio_nxt.c \
 	drv/gpio/gpio_pico.c \
-	drv/gpio/gpio_stm32f0.c \
-	drv/gpio/gpio_stm32f4.c \
-	drv/gpio/gpio_stm32l4.c \
+	drv/gpio/gpio_stm32.c \
 	drv/gpio/gpio_virtual.c \
 	drv/i2c/i2c_ev3.c \
 	drv/imu/imu_lsm6ds3tr_c_stm32.c \
@@ -191,7 +189,7 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	drv/uart/uart_ev3_pru.c \
 	drv/uart/uart_ev3.c \
 	drv/uart/uart_stm32f0.c \
-	drv/uart/uart_stm32f4_ll_irq.c \
+	drv/uart/uart_stm32_ll_irq.c \
 	drv/uart/uart_stm32l4_ll_dma.c \
 	drv/usb/usb.c \
 	drv/usb/usb_common_desc.c \
@@ -205,6 +203,7 @@ PBIO_SRC_C = $(addprefix lib/pbio/,\
 	src/angle.c \
 	src/battery.c \
 	src/busy_count.c \
+	src/cobs.c \
 	src/color/conversion.c \
 	src/color/util.c \
 	src/control_settings.c \

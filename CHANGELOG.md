@@ -2,6 +2,11 @@
 
 # Changelog
 
+## [psp0.1.3a] - 2026-7-23
+## Added
+- Updated PyBricks firmware
+
+
 ## [psp0.1.2a] - 2026-04-18
 ### Added
 - PyBricks firmware updated to latest

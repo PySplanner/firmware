@@ -27,7 +27,7 @@ jobs:
         run: |
           mkdir -p ./pr
           echo $PR_NUMBER > ./pr/pr_number
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pr_number
           path: pr/
@@ -37,14 +37,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Build mpy-cross
       run: make $MAKEOPTS -C micropython/mpy-cross
     - name: Upload mpy-cross
       if: ${{ success() }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: mpy-cross
         path: micropython/mpy-cross/build/mpy-cross
@@ -57,11 +57,11 @@ jobs:
       PYBRICKS_NO_REDIRECT_STDOUT: 1
     steps:
     - name: Checkout repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Download mpy-cross
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: mpy-cross
         path: micropython/mpy-cross/build
@@ -78,7 +78,7 @@ jobs:
       run: |
         ulimit -n 1024 # needed for micropython/tests/extmod/select_poll_fd.py
         cd micropython
-        make -C ports/unix VARIANT=coverage test_full
+        make -C ports/unix VARIANT=coverage test_full -j
         (cd tests && MICROPY_CPYTHON3=python3 MICROPY_MICROPYTHON=../ports/unix/build-coverage/micropython ./run-multitests.py multi_net/*.py)
     - name: List failed tests
       if: failure()
@@ -97,12 +97,12 @@ jobs:
     - name: Install cross-compiler
       run: sudo apt-get update && sudo apt-get install --yes gcc-arm-none-eabi
     - name: Checkout repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
     - name: Download mpy-cross
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: mpy-cross
         path: micropython/mpy-cross/build
@@ -127,7 +127,7 @@ jobs:
         export MICROPY_GIT_TAG=ci-build-${{ github.run_number }}-$(git describe --tags --dirty --always --exclude "@pybricks/*")
         export MICROPY_GIT_HASH=$(echo ${{ github.sha }} | cut -c1-8)
         [ "${{ matrix.hub }}" = "buildhat" ] && make -C bricks/${{ matrix.hub }} submodules
-        poetry run make -C bricks/${{ matrix.hub }}
+        poetry run make -C bricks/${{ matrix.hub }} -j
     - name: Extract firmware.zip for upload
       if: ${{ success()}}
       working-directory: bricks/${{ matrix.hub }}/build
@@ -137,7 +137,7 @@ jobs:
       run: echo "short_sha=$(echo ${{ github.sha }} | cut -c1-8)" >> $GITHUB_OUTPUT
     - name: Upload firmware
       if: ${{ success()}}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.hub }}-firmware-build-${{ github.run_number }}-git${{ steps.vars.outputs.short_sha }}
         path: bricks/${{ matrix.hub }}/build/upload/*
@@ -148,11 +148,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install lcov pipx
+      run: sudo apt-get update && sudo apt-get install pipx
     - name: Install Pybricksdev
       run: pipx install pybricksdev
     - name: Checkout repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
         fetch-depth: 0
@@ -163,7 +163,7 @@ jobs:
         git submodule update --init --depth 0 lib/berkeley-db-1.xx
         git submodule update --init --depth 0 lib/libffi
     - name: Download mpy-cross
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: mpy-cross
         path: micropython/mpy-cross/build
@@ -183,9 +183,9 @@ jobs:
     - name: Install prerequisites
       run: |
         sudo apt-get update
-        sudo apt-get install --yes doxygen graphviz lcov
+        sudo apt-get install --yes doxygen graphviz
     - name: Checkout repo
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: true
     - name: Setup poetry
@@ -197,7 +197,7 @@ jobs:
         poetry run make $MAKEOPTS -C lib/pbio/test
     - name: Build docs
       run: |
-        make $MAKEOPTS -C lib/pbio/doc
-    - name: Build coverage
+        make $MAKEOPTS -C lib/pbio/doc -j
+    - name: Run tests
       run: |
-        poetry run make $MAKEOPTS -C lib/pbio/test build-coverage/lcov.info
+        poetry run ./test-pbio.sh

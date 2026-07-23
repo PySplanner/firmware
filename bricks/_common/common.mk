@@ -163,21 +163,17 @@ GIT = git
 ZIP = zip
 DFU = $(TOP)/tools/dfu.py
 PYDFU = $(TOP)/tools/pydfu.py
-PYBRICKSDEV = pybricksdev
+FLASH = $(PYTHON) $(PBTOP)/tools/flash
 METADATA = $(PBTOP)/tools/metadata.py
 MEDIA_CONVERT = $(PBTOP)/lib/pbio/src/image/media.py
 FONT_CONVERT = $(PBTOP)/lib/pbio/src/image/fontconvert.py
 CREDITS_CONVERT = $(PBTOP)/bricks/ev3/make_credits.py
-OPENOCD ?= openocd
-OPENOCD_CONFIG ?= openocd_stm32$(PB_MCU_SERIES_LCASE).cfg
-TEXT0_ADDR ?= 0x08000000
 
 ifeq ($(PB_MCU_FAMILY),native)
 UNAME_S := $(shell uname -s)
 LD = $(CC)
 ifeq ($(CI_MODE),1)
-COPT = -DPBDRV_CONFIG_RUN_ON_CI
-else
+CFLAGS += -DPBDRV_CONFIG_RUN_ON_CI
 endif
 CFLAGS += $(INC) -Wall -Werror -Wdouble-promotion -Wfloat-conversion -std=gnu99 $(COPT) -D_GNU_SOURCE
 ifeq ($(UNAME_S),Linux)
@@ -211,7 +207,7 @@ endif
 endif
 
 CFLAGS_WARN = -Wall -Werror -Wextra -Wno-unused-parameter -Wno-maybe-uninitialized
-CFLAGS = $(INC) -std=c11 -nostdlib -fshort-enums $(CFLAGS_MCU) $(CFLAGS_WARN) $(COPT) $(CFLAGS_EXTRA)
+CFLAGS += $(INC) -std=c11 -nostdlib -fshort-enums $(CFLAGS_MCU) $(CFLAGS_WARN) $(COPT) $(CFLAGS_EXTRA)
 $(BUILD)/lib/libm/%.o: CFLAGS += -Wno-sign-compare
 
 # linker scripts
@@ -240,14 +236,23 @@ endif # end embedded, begin common
 
 # Tune for Debugging or Optimization
 ifeq ($(COVERAGE), 1)
+COPT = -O0
 CFLAGS += --coverage -fprofile-arcs -ftest-coverage
 LDFLAGS += --coverage
 else ifeq ($(DEBUG), 1)
-CFLAGS += -O0 -ggdb
-else ifeq ($(DEBUG), 2)
-CFLAGS += -Os -DNDEBUG -flto=auto
+
+# If we are building nativly, -O0 makes step debugging work better. But for
+# embedded targets, -Os is needed just to get the firmware to fit on the device.
+ifeq ($(PB_MCU_FAMILY),native)
+COPT = -O0
 else
-CFLAGS += -Os -DNDEBUG -flto=auto
+COPT = -Os
+endif
+
+CFLAGS += -ggdb
+else
+COPT = -Os
+CFLAGS += -DNDEBUG -flto=auto
 endif
 
 CFLAGS += -fdata-sections -ffunction-sections
@@ -428,7 +433,9 @@ BTSTACK_SRC_C += $(addprefix lib/btstack/,\
 $(BUILD)/lib/btstack/platform/libusb/hci_transport_h2_libusb.o: CFLAGS += -Wno-unused-variable
 endif
 
-COPT += -DUSE_FULL_LL_DRIVER
+# STM32 HAL
+
+CFLAGS += -DUSE_FULL_LL_DRIVER
 
 STM32_HAL_SRC_C = $(addprefix lib/stm32lib/STM32$(PB_MCU_SERIES)xx_HAL_Driver/Src/,\
     stm32$(PB_MCU_SERIES_LCASE)xx_hal_adc_ex.c \
@@ -758,22 +765,19 @@ $(BUILD)/firmware-obj.bin: $(BUILD)/firmware.elf
 	$(ECHO) "`wc -c < $@` bytes"
 
 ifeq ($(PB_MCU_FAMILY),TIAM1808)
-$(BUILD)/u-boot.bin:
-	$(ECHO) "Downloading u-boot.bin"
-	$(Q)mkdir -p $(dir $@)
-	$(Q)curl -sL -o $@ https://github.com/pybricks/u-boot/releases/download/pybricks/v2.0.1/u-boot.bin
-	$(Q)echo "86ddad84f64d8aea85b4315fc1414bdec0bb0d46c92dbd3db45ed599e3a994cb  $@" | sha256sum -c --strict
-$(BUILD)/pru_ledpwm.bin:
-	$(ECHO) "Downloading pru_ledpwm.bin"
-	$(Q)mkdir -p $(dir $@)
-	$(Q)curl -sL -o $@ https://github.com/pybricks/pybricks-pru/releases/download/v1.0.0/pru_ledpwm.bin
-	$(Q)echo "b4f1225e277bb22efa5394ce782cc19a3e2fdd54367e40b9d09e9ca99c6ef6d0  $@" | sha256sum -c --strict
 
 MAKE_BOOTABLE_IMAGE = $(PBTOP)/bricks/ev3/make_bootable_image.py
-$(BUILD)/firmware-base.bin: $(MAKE_BOOTABLE_IMAGE) $(BUILD)/u-boot.bin $(BUILD)/firmware.stripped.elf
+
+# For EV3, merge firmware blob with u-boot to create a bootable image.
+$(BUILD)/firmware-base.bin: $(MAKE_BOOTABLE_IMAGE) $(PBTOP)/lib/pbio/platform/ev3/u-boot.bin $(BUILD)/firmware.stripped.elf
 	$(Q)$^ $@
 else
 $(BUILD)/firmware-base.bin: $(BUILD)/firmware-obj.bin
+# Safety requirement for SPIKE Prime
+ifneq ($(findstring prime_hub,$(PBIO_PLATFORM)),)
+	$(Q)od -An -t u1 -j 0x264 -N 1 $< | awk '{if ($$1 >= 15) { print "Error: byte at 0x264 must be < 0xf"; exit 1 } }'
+	$(Q)od -An -t u1 -j 0x1f0 -N 1 $< | awk '{if ($$1 >= 15) { print "Error: byte at 0x1f0 must be < 0xf"; exit 1 } }'
+endif
 	$(Q)cp $< $@
 endif
 
@@ -792,21 +796,13 @@ $(BUILD)/firmware.zip: $(ZIP_FILES)
 
 $(BUILD)/pru_suart.bin.o: $(PBTOP)/lib/pbio/drv/uart/uart_ev3_pru_lib/pru_suart.bin
 	$(Q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
-        --rename-section .data=.pru0,alloc,load,readonly,data,contents $^ $@
-$(BUILD)/pru_ledpwm.bin.o: $(BUILD)/pru_ledpwm.bin
+		--rename-section .data=.pru0,alloc,load,readonly,data,contents $^ $@
+$(BUILD)/pru_ledpwm.bin.o: $(PBTOP)/lib/pbio/platform/ev3/pru_ledpwm.bin
 	$(Q)$(OBJCOPY) -I binary -O elf32-littlearm -B arm \
         --rename-section .data=.pru1,alloc,load,readonly,data,contents $^ $@
 
-$(BUILD)/%.dfu: $(BUILD)/%-base.bin
-	$(ECHO) "DFU Create $@"
-	$(Q)$(PYTHON) $(DFU) -b $(TEXT0_ADDR):$< $@
-
 deploy: $(BUILD)/firmware.zip
-	$(Q)$(PYBRICKSDEV) flash $< $(if $(filter-out nxt ev3,$(PBIO_PLATFORM)),--name $(PBIO_PLATFORM))
-
-deploy-openocd: $(BUILD)/firmware-base.bin
-	$(ECHO) "Writing $< to the board via ST-LINK using OpenOCD"
-	$(Q)$(OPENOCD) -f $(OPENOCD_CONFIG) -c "stm_flash $< $(TEXT0_ADDR)"
+	$(Q)$(FLASH) $< --name $(PBIO_PLATFORM)
 
 .DELETE_ON_ERROR:
 

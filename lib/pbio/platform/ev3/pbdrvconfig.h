@@ -54,8 +54,8 @@
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_CLASSIC      (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_EV3          (1)
 #define PBDRV_CONFIG_BLUETOOTH_BTSTACK_CC2560X      (1)
-#define PBDRV_CONFIG_BLUETOOTH_BTSTACK_HUB_KIND     LWP3_HUB_KIND_TECHNIC_LARGE
-#undef PBDRV_CONFIG_BLUETOOTH_BTSTACK_HUB_VARIANT_ADDR
+#define PBDRV_CONFIG_HUB_KIND                       PBIO_PYBRICKS_HUB_KIND_EV3
+#define PBDRV_CONFIG_HUB_VARIANT                    0x0000
 
 #define PBDRV_CONFIG_BUTTON                         (1)
 #define PBDRV_CONFIG_BUTTON_GPIO                    (1)
@@ -111,8 +111,6 @@
 #define PBDRV_CONFIG_UART_EV3_NUM_UART              (4)
 
 #define PBDRV_CONFIG_USB                            (1)
-#define PBDRV_CONFIG_USB_MAX_PACKET_SIZE            (512)
-#define PBDRV_CONFIG_USB_NUM_BUFFERED_PACKETS       (2)
 #define PBDRV_CONFIG_USB_EV3                        (1)
 #define PBDRV_CONFIG_USB_VID                        LEGO_USB_VID
 #define PBDRV_CONFIG_USB_PID                        LEGO_USB_PID_EV3

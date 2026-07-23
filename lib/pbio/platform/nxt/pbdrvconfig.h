@@ -18,6 +18,9 @@
 
 #define PBDRV_CONFIG_BLUETOOTH                      (0)
 
+#define PBDRV_CONFIG_HUB_KIND                       PBIO_PYBRICKS_HUB_KIND_NXT
+#define PBDRV_CONFIG_HUB_VARIANT                    0x0000
+
 #define PBDRV_CONFIG_CLOCK                          (1)
 #define PBDRV_CONFIG_CLOCK_NXT                      (1)
 
@@ -68,8 +71,6 @@
 
 #define PBDRV_CONFIG_USB                            (1)
 #define PBDRV_CONFIG_USB_NXT                        (1)
-#define PBDRV_CONFIG_USB_MAX_PACKET_SIZE            (64)
-#define PBDRV_CONFIG_USB_NUM_BUFFERED_PACKETS       (2)
 #define PBDRV_CONFIG_USB_VID                        LEGO_USB_VID
 #define PBDRV_CONFIG_USB_PID                        LEGO_USB_PID_NXT
 #define PBDRV_CONFIG_USB_MFG_STR                    LEGO_USB_MFG_STR
