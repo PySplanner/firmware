@@ -79,7 +79,7 @@ extern const mp_obj_module_t pb_module_robotics;
 static const mp_rom_map_elem_t pybricks_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR___name__),            MP_ROM_QSTR(MP_QSTR_pybricks) },
     { MP_ROM_QSTR(MP_QSTR_version),             MP_ROM_PTR(&pybricks_info_obj)},
-    
+
     #if PYBRICKS_PY_EXPERIMENTAL
     { MP_ROM_QSTR(MP_QSTR_experimental),        MP_ROM_PTR(&pb_module_experimental) },
     #endif

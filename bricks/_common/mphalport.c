@@ -34,7 +34,7 @@ void mp_hal_delay_ms(mp_uint_t Delay) {
         // raise an exception, switch threads or enter sleep mode (waiting for
         // (at least) the SysTick interrupt).
         mp_event_wait_indefinite();
-        
+
         // ---> EXPERIMENTAL ODOMETRY HOOK <---
         #if PYBRICKS_PY_EXPERIMENTAL
         pb_background_odometry_update();
@@ -62,7 +62,7 @@ int mp_hal_stdin_rx_chr(void) {
     // wait for rx interrupt
     while (size = 1, pbsys_host_stdin_read(&c, &size) != PBIO_SUCCESS) {
         mp_event_wait_indefinite();
-        
+
         // ---> EXPERIMENTAL ODOMETRY HOOK <---
         #if PYBRICKS_PY_EXPERIMENTAL
         pb_background_odometry_update();
@@ -94,7 +94,7 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
         // Allow long prints to be interrupted.
         if (remaining) {
             mp_event_wait_indefinite();
-            
+
             // ---> EXPERIMENTAL ODOMETRY HOOK <---
             #if PYBRICKS_PY_EXPERIMENTAL
             pb_background_odometry_update();

@@ -20,7 +20,7 @@
 // Hardware Object structure declaration
 typedef struct _pb_type_pupdevices_Motor_obj_t {
     mp_obj_base_t base;
-    pbio_servo_t *srv; 
+    pbio_servo_t *srv;
 } pb_type_pupdevices_Motor_obj_t;
 
 // State Variables
@@ -37,7 +37,7 @@ volatile float global_x = 0.0f, global_y = 0.0f, global_h = 0.0f;
 volatile int32_t last_left_angle = 0, last_right_angle = 0;
 
 // NEW: Store the last IMU read to calculate deltas
-volatile float last_imu_heading = 0.0f; 
+volatile float last_imu_heading = 0.0f;
 
 float odom_deg_to_mm = 1.0f;
 float odom_inv_track = 1.0f;
@@ -53,10 +53,12 @@ volatile uint32_t current_fps = 0;
 volatile uint32_t last_fps_time_ms = 0;
 
 void pb_background_odometry_update(void) {
-    if (!odom_running) return;
+    if (!odom_running) {
+        return;
+    }
 
     uint32_t now = mp_hal_ticks_ms();
-    
+
     // Every 1000ms, save the count and reset
     if (now - last_fps_time_ms >= 1000) {
         current_fps = vm_loop_counter;
@@ -65,18 +67,18 @@ void pb_background_odometry_update(void) {
     }
     // -------------------------
 
-    if (!left_servo_ptr || !right_servo_ptr) return;
+    if (!left_servo_ptr || !right_servo_ptr) {
+        return;
+    }
 
     // --- RATE CAP: 200 Hz (5ms) ---
-    if (now - last_odom_time_ms < mstowait) return;
+    if (now - last_odom_time_ms < mstowait) {
+        return;
+    }
     last_odom_time_ms = now;
     // ------------------------------
     vm_loop_counter++;
-    
-    // 1. Get the High-Level Pybricks IMU Instance
-    pbio_imu_t *imu;
-    pbio_imu_get_imu(&imu);
-    
+
     int32_t cur_l, cur_r, unused_rate;
     pbio_servo_get_state_user(left_servo_ptr, &cur_l, &unused_rate);
     pbio_servo_get_state_user(right_servo_ptr, &cur_r, &unused_rate);
@@ -89,21 +91,29 @@ void pb_background_odometry_update(void) {
     last_right_angle = cur_r;
 
     // 2. Calculate Heading Delta from IMU (Happens even if wheels don't move, in case robot is pushed)
-    float current_imu_heading = pbio_imu_get_heading(imu); 
+    float current_imu_heading = pbio_imu_get_heading(0);
     float dH = current_imu_heading - last_imu_heading;
     last_imu_heading = current_imu_heading;
-    
+
     // Protect against the IMU wrapping across the -PI/PI boundary
-    while (dH > 3.14159f) dH -= 6.28318f;
-    while (dH < -3.14159f) dH += 6.28318f;
-    
+    while (dH > 3.14159f) {
+        dH -= 6.28318f;
+    }
+    while (dH < -3.14159f) {
+        dH += 6.28318f;
+    }
+
     // Calculate the average heading for this tick's coordinate projection
     float avg_h = global_h + (dH * 0.5f);
-    
+
     // Accumulate the global heading and wrap it safely
     global_h += dH;
-    while (global_h > 3.14159f) global_h -= 6.28318f;
-    while (global_h < -3.14159f) global_h += 6.28318f;
+    while (global_h > 3.14159f) {
+        global_h -= 6.28318f;
+    }
+    while (global_h < -3.14159f) {
+        global_h += 6.28318f;
+    }
 
     // 3. Project X/Y coordinates if the wheels actually moved
     if (delta_l != 0 || delta_r != 0) {
@@ -117,11 +127,15 @@ void pb_background_odometry_update(void) {
 }
 
 void pb_background_pursuit_update(void) {
-    if (!pursuit_running || !left_servo_ptr || !right_servo_ptr) return;
+    if (!pursuit_running || !left_servo_ptr || !right_servo_ptr) {
+        return;
+    }
 
     // --- RATE CAP: 100 Hz (10ms) ---
     uint32_t now = mp_hal_ticks_ms();
-    if (now - last_pursuit_time_ms < mstowait) return;
+    if (now - last_pursuit_time_ms < mstowait) {
+        return;
+    }
     last_pursuit_time_ms = now;
     // -------------------------------
 
@@ -133,11 +147,13 @@ void pb_background_pursuit_update(void) {
     }
 
     float target_x = global_x + p_lookahead;
-    if (target_x > sp_x_end) target_x = sp_x_end;
-    
-    float target_y = (sp_a * (target_x * target_x * target_x)) + 
-                     (sp_b * (target_x * target_x)) + 
-                     (sp_c * target_x) + sp_d;
+    if (target_x > sp_x_end) {
+        target_x = sp_x_end;
+    }
+
+    float target_y = (sp_a * (target_x * target_x * target_x)) +
+        (sp_b * (target_x * target_x)) +
+        (sp_c * target_x) + sp_d;
 
     float x_dif = target_x - global_x;
     float y_dif = target_y - global_y;
@@ -160,36 +176,36 @@ void pb_background_pursuit_update(void) {
 mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
     left_servo_ptr = ((pb_type_pupdevices_Motor_obj_t *)MP_OBJ_TO_PTR(args[0]))->srv;
     right_servo_ptr = ((pb_type_pupdevices_Motor_obj_t *)MP_OBJ_TO_PTR(args[1]))->srv;
-    
+
     // Using mm_per_deg directly as passed from Python
-    odom_deg_to_mm = mp_obj_get_float(args[2]); 
+    odom_deg_to_mm = mp_obj_get_float(args[2]);
     odom_inv_track = 1.0f / mp_obj_get_float(args[3]);
-    
+
     global_x = mp_obj_get_float(args[4]);
     global_y = mp_obj_get_float(args[5]);
     global_h = mp_obj_get_float(args[6]);
     fps = mp_obj_get_int(args[7]);
-    
+
     mstowait = 1000 / fps;
     int32_t unused;
-    pbio_servo_get_state_user(left_servo_ptr, (int32_t*)&last_left_angle, &unused);
-    pbio_servo_get_state_user(right_servo_ptr, (int32_t*)&last_right_angle, &unused);
-    
+    pbio_servo_get_state_user(left_servo_ptr, (int32_t *)&last_left_angle, &unused);
+    pbio_servo_get_state_user(right_servo_ptr, (int32_t *)&last_right_angle, &unused);
+
     // Sync the IMU baseline before the loop starts to prevent massive delta jumps
     pbio_imu_t *imu;
     if (pbio_imu_get_imu(&imu) == PBIO_SUCCESS) {
         last_imu_heading = pbio_imu_get_heading(imu);
     }
-    
+
     odom_running = true;
     return mp_const_none;
 }
 
 mp_obj_t experimental_get_odometry(void) {
-    mp_obj_t tuple[3] = { 
-        mp_obj_new_float_from_f(global_x), 
-        mp_obj_new_float_from_f(global_y), 
-        mp_obj_new_float_from_f(global_h) 
+    mp_obj_t tuple[3] = {
+        mp_obj_new_float_from_f(global_x),
+        mp_obj_new_float_from_f(global_y),
+        mp_obj_new_float_from_f(global_h)
     };
     return mp_obj_new_tuple(3, tuple);
 }

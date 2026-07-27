@@ -167,7 +167,7 @@ void pb_background_pursuit_update(void);
         pb_background_odometry_update(); \
         pb_background_pursuit_update(); \
     } while (0);
-    
+
 #define MICROPY_GC_HOOK_LOOP(i) do { \
         if (((i) & 0xf) == 0) { \
             MICROPY_VM_HOOK_LOOP \
