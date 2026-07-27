@@ -36,7 +36,7 @@ volatile uint32_t mstowait = 5;
 volatile float global_x = 0.0f, global_y = 0.0f, global_h = 0.0f;
 volatile int32_t last_left_angle = 0, last_right_angle = 0;
 
-// NEW: Store the last IMU read to calculate deltas
+// Store the last IMU read to calculate deltas
 volatile float last_imu_heading = 0.0f;
 
 float odom_deg_to_mm = 1.0f;
@@ -90,7 +90,7 @@ void pb_background_odometry_update(void) {
     last_left_angle = cur_l;
     last_right_angle = cur_r;
 
-    // 2. Calculate Heading Delta from IMU (Happens even if wheels don't move, in case robot is pushed)
+    // Calculate Heading Delta directly from the IMU (axis 0 = yaw)
     float current_imu_heading = pbio_imu_get_heading(0);
     float dH = current_imu_heading - last_imu_heading;
     last_imu_heading = current_imu_heading;
@@ -115,7 +115,7 @@ void pb_background_odometry_update(void) {
         global_h += 6.28318f;
     }
 
-    // 3. Project X/Y coordinates if the wheels actually moved
+    // Project X/Y coordinates if the wheels actually moved
     if (delta_l != 0 || delta_r != 0) {
         float dL = (float)delta_l * odom_deg_to_mm;
         float dR = (float)delta_r * odom_deg_to_mm;
@@ -192,10 +192,7 @@ mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
     pbio_servo_get_state_user(right_servo_ptr, (int32_t *)&last_right_angle, &unused);
 
     // Sync the IMU baseline before the loop starts to prevent massive delta jumps
-    pbio_imu_t *imu;
-    if (pbio_imu_get_imu(&imu) == PBIO_SUCCESS) {
-        last_imu_heading = pbio_imu_get_heading(imu);
-    }
+    last_imu_heading = pbio_imu_get_heading(0);
 
     odom_running = true;
     return mp_const_none;
