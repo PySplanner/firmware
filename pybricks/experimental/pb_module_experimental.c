@@ -18,8 +18,8 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_start_odometry_obj, 8, 8
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_get_odometry_obj, experimental_get_odometry);
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_stop_odometry_obj, experimental_stop_odometry);
 
-// FIXED: Pursuit takes 7 arguments (a, b, c, d, x_end, speed, lookahead), not 4.
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_start_pursuit_obj, 7, 7, experimental_start_pursuit);
+// Pursuit now takes 3 list arguments: (spline_coefficients, drive_base, tuning_variables)
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_start_pursuit_obj, 3, 3, experimental_start_pursuit);
 
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_stop_pursuit_obj, experimental_stop_pursuit);
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_get_fps_obj, experimental_get_fps);
