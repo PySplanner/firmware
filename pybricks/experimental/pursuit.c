@@ -20,7 +20,7 @@ pb_pursuit_state_t pursuit_state = {0};
 static float evaluate_x(float tau, uint8_t derivative) {
     uint16_t spline_count;
     if (tau != pursuit_state.total_splines) {
-        spline_count = (uint16_t)floorf(tau);
+        spline_count = (uint16_t)tau;
     } else {
         spline_count = pursuit_state.total_splines - 1;
     }
@@ -46,7 +46,7 @@ static float evaluate_x(float tau, uint8_t derivative) {
 static float evaluate_y(float tau, uint8_t derivative) {
     uint16_t spline_count;
     if (tau != pursuit_state.total_splines) {
-        spline_count = (uint16_t)floorf(tau);
+        spline_count = (uint16_t)tau;
     } else {
         spline_count = pursuit_state.total_splines - 1;
     }
