@@ -34,4 +34,20 @@ static inline float pb_fast_cos(float theta) {
     return pb_fast_sin(theta + 1.57079633f);
 }
 
+static inline float curve_divisor(float num, float den_b) {
+
+    union { float f;
+            uint32_t i;
+    } conv;
+
+    conv.f = den_b;
+    conv.i = 0x5F1FFFF9 - (conv.i >> 1);
+
+    conv.f *= 0.703952253f * (2.38924456f - den_b * conv.f * conv.f);
+
+    float y = conv.f;
+    return num * y * y * y;
+
+}
+
 #endif // PYBRICKS_PLATFORM_MATH_H
