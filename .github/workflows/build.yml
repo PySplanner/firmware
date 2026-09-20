@@ -113,6 +113,8 @@ jobs:
     - name: Build firmware (pull request)
       if: ${{ github.base_ref != null }}
       run: poetry run .github/build-each-commit.py ${{ matrix.hub }} ${{ github.sha }}
+    - name: Fix script permissions
+      run: chmod +x .github/build-each-commit.py
     - name: Build firmware (non-master branch)
       if: ${{ github.base_ref == null && github.ref != 'refs/heads/master' }}
       env:
