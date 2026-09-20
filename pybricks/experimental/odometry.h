@@ -37,4 +37,9 @@ extern pb_odom_state_t odom_state;
 // Background update hook
 void pb_background_odometry_update(void);
 
+mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args);
+mp_obj_t experimental_get_odometry(void);
+mp_obj_t experimental_stop_odometry(void);
+mp_obj_t experimental_get_fps(void);
+
 #endif // PYBRICKS_EXPERIMENTAL_ODOMETRY_H

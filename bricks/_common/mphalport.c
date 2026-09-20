@@ -20,7 +20,7 @@
 // Bring in our background hook
 #if PYBRICKS_PY_EXPERIMENTAL
 extern void pb_background_odometry_update(void);
-extern void pb_background_pursuit_update(void); // Add this
+extern void pb_background_pursuit_update(void);
 #endif
 
 // Core delay function that does an efficient sleep and may switch thread context.
@@ -66,6 +66,7 @@ int mp_hal_stdin_rx_chr(void) {
         // ---> EXPERIMENTAL ODOMETRY HOOK <---
         #if PYBRICKS_PY_EXPERIMENTAL
         pb_background_odometry_update();
+        pb_background_pursuit_update();
         #endif
     }
 
@@ -98,6 +99,7 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
             // ---> EXPERIMENTAL ODOMETRY HOOK <---
             #if PYBRICKS_PY_EXPERIMENTAL
             pb_background_odometry_update();
+            pb_background_pursuit_update();
             #endif
         }
     }

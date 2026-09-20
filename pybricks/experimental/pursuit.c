@@ -17,15 +17,28 @@
 
 pb_pursuit_state_t pursuit_state = {0};
 
-static float evaluate_x(float tau, uint8_t derivative) {
-    uint16_t spline_count;
-    if (tau != pursuit_state.total_splines) {
-        spline_count = (uint16_t)tau;
-    } else {
-        spline_count = pursuit_state.total_splines - 1;
-    }
+// Fallback tick interval if odometry somehow has none. Real runs always have
+// odom_state.mstowait set, because start_pursuit refuses to arm without it.
+#define PB_PURSUIT_FALLBACK_MS  (5)
 
+// Resolves tau to a spline index plus a local parameter, clamped at both ends.
+// The old version cast tau straight to uint16_t, which read out of bounds for
+// any negative tau Newton happened to produce.
+static uint16_t spline_index(float tau) {
+    if (tau <= 0.0f) {
+        return 0;
+    }
+    uint16_t index = (uint16_t)tau;
+    if (index >= pursuit_state.total_splines) {
+        index = pursuit_state.total_splines - 1;
+    }
+    return index;
+}
+
+static float evaluate_x(float tau, uint8_t derivative) {
+    uint16_t spline_count = spline_index(tau);
     float t = tau - (float)spline_count;
+
     float ax = pursuit_state.spline_coefficients[spline_count][0];
     float bx = pursuit_state.spline_coefficients[spline_count][1];
     float cx = pursuit_state.spline_coefficients[spline_count][2];
@@ -44,14 +57,9 @@ static float evaluate_x(float tau, uint8_t derivative) {
 }
 
 static float evaluate_y(float tau, uint8_t derivative) {
-    uint16_t spline_count;
-    if (tau != pursuit_state.total_splines) {
-        spline_count = (uint16_t)tau;
-    } else {
-        spline_count = pursuit_state.total_splines - 1;
-    }
-
+    uint16_t spline_count = spline_index(tau);
     float t = tau - (float)spline_count;
+
     float ay = pursuit_state.spline_coefficients[spline_count][4];
     float by = pursuit_state.spline_coefficients[spline_count][5];
     float cy = pursuit_state.spline_coefficients[spline_count][6];
@@ -70,6 +78,8 @@ static float evaluate_y(float tau, uint8_t derivative) {
 }
 
 static void target_point_approximation(void) {
+    float t_end = (float)pursuit_state.total_splines;
+
     for (uint8_t i = 0; i < pursuit_state.total_newton_iterations; i++) {
 
         float last_t_lookahead = pursuit_state.t_lookahead;
@@ -82,7 +92,12 @@ static void target_point_approximation(void) {
         if (den != 0.0f) {
             pursuit_state.t_lookahead = last_t_lookahead - (num / den) / 3.0f;
         }
-        if (pursuit_state.t_lookahead > (float)pursuit_state.total_splines) {
+
+        //clamping to path
+        if (pursuit_state.t_lookahead > t_end) {
+            pursuit_state.t_lookahead = t_end;
+        }
+        if (pursuit_state.t_lookahead < 0.0f) {
             pursuit_state.t_lookahead = 0.0f;
         }
     }
@@ -90,6 +105,7 @@ static void target_point_approximation(void) {
     pursuit_state.target_y = evaluate_y(pursuit_state.t_lookahead, 0);
 }
 
+//fixed 0.0f being interpreted as 0 speed
 static float calculate_pure_pursuit(void) {
     float world_x_diff = pursuit_state.target_x - odom_state.global_x;
     float world_y_diff = pursuit_state.target_y - odom_state.global_y;
@@ -109,9 +125,9 @@ static float evaluate_path_curvature(void) {
     float ddy = evaluate_y(pursuit_state.t_lookahead, 2);
 
     float curvature = 0.0f;
-    if (dx != 0.0f || dy != 0.0f) {
+    float den_b = (dx * dx) + (dy * dy);
+    if (den_b > 1e-12f) {
         float num = fabsf(dx * ddy - dy * ddx);
-        float den_b = (dx * dx) + (dy * dy);
         float den = den_b * sqrtf(den_b);
         curvature = num / den;
     }
@@ -125,22 +141,44 @@ static float evaluate_path_curvature(void) {
     return curvature;
 }
 
-static void execute_speed_control(float turning_radius, float path_curvature) {
-    float local_max_speed = pursuit_state.min_speed +
-        (path_curvature - pursuit_state.max_curvature) *
-        (pursuit_state.max_speed - pursuit_state.min_speed) /
-        (pursuit_state.min_curvature - pursuit_state.max_curvature);
+static void execute_speed_control(float turning_radius, float path_curvature, float time_passed) {
 
-    float local_base_speed = local_max_speed * pursuit_state.base_speed_percentage;
-    float right_target = 0.0f, left_target = 0.0f;
-
-    if (turning_radius != 0.0f) {
-        float track_half = (1.0f / odom_state.inv_track) / 2.0f;
-        right_target = local_base_speed * (turning_radius + track_half) / turning_radius;
-        left_target = local_base_speed * (turning_radius - track_half) / turning_radius;
+    float curvature_span = pursuit_state.min_curvature - pursuit_state.max_curvature;
+    float local_max_speed;
+    if (curvature_span > -1e-9f && curvature_span < 1e-9f) {
+        local_max_speed = pursuit_state.max_speed;
+    } else {
+        local_max_speed = pursuit_state.min_speed +
+            (path_curvature - pursuit_state.max_curvature) *
+            (pursuit_state.max_speed - pursuit_state.min_speed) / curvature_span;
+    }
+    if (local_max_speed > pursuit_state.max_speed) {
+        local_max_speed = pursuit_state.max_speed;
+    }
+    if (local_max_speed < pursuit_state.min_speed) {
+        local_max_speed = pursuit_state.min_speed;
     }
 
-    float time_passed = (float)odom_state.mstowait / 1000.0f;
+    float local_base_speed = local_max_speed * pursuit_state.base_speed_percentage;
+    float right_target, left_target;
+
+    if (turning_radius == 0.0f || odom_state.inv_track <= 0.0f) {
+        //fixed robot stopping when reaching the point
+        right_target = local_base_speed;
+        left_target = local_base_speed;
+    } else {
+        float track_half = (1.0f / odom_state.inv_track) * 0.5f;
+        right_target = local_base_speed * (turning_radius + track_half) / turning_radius;
+        left_target = local_base_speed * (turning_radius - track_half) / turning_radius;
+
+        float peak = fabsf(right_target) > fabsf(left_target) ? fabsf(right_target) : fabsf(left_target);
+        if (peak > pursuit_state.max_speed && peak > 0.0f) {
+            float scale = pursuit_state.max_speed / peak;
+            right_target *= scale;
+            left_target *= scale;
+        }
+    }
+
     float right_accel = right_target - pursuit_state.right_motor_speed;
     float left_accel = left_target - pursuit_state.left_motor_speed;
     float max_step = pursuit_state.max_per_motor_acceleration * time_passed;
@@ -164,7 +202,8 @@ static void execute_speed_control(float turning_radius, float path_curvature) {
     pursuit_state.right_motor_speed += right_accel;
     pursuit_state.left_motor_speed += left_accel;
 
-    float current_robot_speed = (pursuit_state.right_motor_speed + pursuit_state.left_motor_speed) / 2.0f;
+    //fixed scaling
+    float current_robot_speed = (pursuit_state.right_motor_speed + pursuit_state.left_motor_speed) * 0.5f;
     if (current_robot_speed > pursuit_state.max_speed) {
         current_robot_speed = pursuit_state.max_speed;
     }
@@ -172,10 +211,14 @@ static void execute_speed_control(float turning_radius, float path_curvature) {
         current_robot_speed = pursuit_state.min_speed;
     }
 
-    pursuit_state.lookahead = pursuit_state.min_lookahead +
-        (current_robot_speed - pursuit_state.min_speed) *
-        (pursuit_state.max_lookahead - pursuit_state.min_lookahead) /
-        (pursuit_state.max_speed - pursuit_state.min_speed);
+    float speed_span = pursuit_state.max_speed - pursuit_state.min_speed;
+    if (speed_span > 1e-6f) {
+        pursuit_state.lookahead = pursuit_state.min_lookahead +
+            (current_robot_speed - pursuit_state.min_speed) *
+            (pursuit_state.max_lookahead - pursuit_state.min_lookahead) / speed_span;
+    } else {
+        pursuit_state.lookahead = pursuit_state.min_lookahead;
+    }
 
     pbio_servo_run_forever(odom_state.left_servo, (int32_t)pursuit_state.left_motor_speed);
     pbio_servo_run_forever(odom_state.right_servo, (int32_t)pursuit_state.right_motor_speed);
@@ -186,36 +229,57 @@ void pb_background_pursuit_update(void) {
         return;
     }
 
+    uint32_t interval = odom_state.mstowait ? odom_state.mstowait : PB_PURSUIT_FALLBACK_MS;
     uint32_t now = mp_hal_ticks_ms();
-    if (now - pursuit_state.last_time_ms < odom_state.mstowait) {
+    uint32_t elapsed = now - pursuit_state.last_time_ms;
+    if (elapsed < interval) {
         return;
     }
     pursuit_state.last_time_ms = now;
 
     if (pursuit_state.t_lookahead >= (float)pursuit_state.total_splines) {
         pursuit_state.running = false;
+        pursuit_state.left_motor_speed = 0.0f;
+        pursuit_state.right_motor_speed = 0.0f;
         pbio_servo_stop(odom_state.left_servo, PBIO_CONTROL_ON_COMPLETION_BRAKE);
         pbio_servo_stop(odom_state.right_servo, PBIO_CONTROL_ON_COMPLETION_BRAKE);
         return;
     }
+    float time_passed = (float)elapsed / 1000.0f;
 
     target_point_approximation();
     float turning_radius = calculate_pure_pursuit();
     float path_curvature = evaluate_path_curvature();
-    execute_speed_control(turning_radius, path_curvature);
+    execute_speed_control(turning_radius, path_curvature, time_passed);
 }
 
 mp_obj_t experimental_start_pursuit(size_t n_args, const mp_obj_t *args) {
+
+    //cant run pursuit without odom
+    if (!odom_state.running) {
+        mp_raise_ValueError(MP_ERROR_TEXT("call start_odometry() first"));
+    }
+
+    pursuit_state.running = false;
+
     size_t num_splines;
     mp_obj_t *splines_arr;
     mp_obj_get_array(args[0], &num_splines, &splines_arr);
+    if (num_splines == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("no splines given"));
+    }
+    if (num_splines > PB_PURSUIT_MAX_SPLINES) {
+        mp_raise_ValueError(MP_ERROR_TEXT("too many splines"));
+    }
     pursuit_state.total_splines = (uint16_t)num_splines;
-    pursuit_state.spline_coefficients = (float (*)[8])m_new(float, 8 * num_splines);
 
     for (size_t i = 0; i < num_splines; i++) {
         size_t num_coeffs;
         mp_obj_t *coeffs_arr;
         mp_obj_get_array(splines_arr[i], &num_coeffs, &coeffs_arr);
+        if (num_coeffs < 8) {
+            mp_raise_ValueError(MP_ERROR_TEXT("each spline needs 8 coefficients"));
+        }
         for (size_t j = 0; j < 8; j++) {
             pursuit_state.spline_coefficients[i][j] = mp_obj_get_float(coeffs_arr[j]);
         }
@@ -224,30 +288,68 @@ mp_obj_t experimental_start_pursuit(size_t n_args, const mp_obj_t *args) {
     size_t db_len;
     mp_obj_t *db_arr;
     mp_obj_get_array(args[1], &db_len, &db_arr);
+    if (db_len < 6) {
+        mp_raise_ValueError(MP_ERROR_TEXT("drive_base needs 6 entries"));
+    }
     pursuit_state.max_speed = mp_obj_get_float(db_arr[2]);
     pursuit_state.min_speed = mp_obj_get_float(db_arr[3]);
     pursuit_state.base_speed_percentage = mp_obj_get_float(db_arr[4]);
     pursuit_state.max_per_motor_acceleration = mp_obj_get_float(db_arr[5]);
 
+    if (pursuit_state.max_speed < pursuit_state.min_speed) {
+        mp_raise_ValueError(MP_ERROR_TEXT("max_speed below min_speed"));
+    }
+    if (pursuit_state.max_per_motor_acceleration <= 0.0f) {
+        mp_raise_ValueError(MP_ERROR_TEXT("acceleration must be positive"));
+    }
+
     size_t tun_len;
     mp_obj_t *tun_arr;
     mp_obj_get_array(args[2], &tun_len, &tun_arr);
-    pursuit_state.min_curvature = 1.0f / mp_obj_get_float(tun_arr[0]);
-    pursuit_state.max_curvature = 1.0f / mp_obj_get_float(tun_arr[1]);
+    if (tun_len < 5) {
+        mp_raise_ValueError(MP_ERROR_TEXT("tuning needs 5 entries"));
+    }
+
+    float radius_a = mp_obj_get_float(tun_arr[0]);
+    float radius_b = mp_obj_get_float(tun_arr[1]);
+    if (radius_a <= 0.0f || radius_b <= 0.0f) {
+        mp_raise_ValueError(MP_ERROR_TEXT("tuning radii must be positive"));
+    }
+    pursuit_state.min_curvature = 1.0f / radius_a;
+    pursuit_state.max_curvature = 1.0f / radius_b;
+    if (pursuit_state.min_curvature > pursuit_state.max_curvature) {
+        float swap = pursuit_state.min_curvature;
+        pursuit_state.min_curvature = pursuit_state.max_curvature;
+        pursuit_state.max_curvature = swap;
+    }
+
     pursuit_state.min_lookahead = mp_obj_get_float(tun_arr[2]);
     pursuit_state.max_lookahead = mp_obj_get_float(tun_arr[3]);
-    pursuit_state.total_newton_iterations = (uint8_t)mp_obj_get_int(tun_arr[4]);
+
+    int iterations = mp_obj_get_int(tun_arr[4]);
+    if (iterations < 1) {
+        iterations = 1;
+    }
+    if (iterations > 255) {
+        iterations = 255;
+    }
+    pursuit_state.total_newton_iterations = (uint8_t)iterations;
 
     pursuit_state.t_lookahead = 0.5f;
     pursuit_state.lookahead = pursuit_state.min_lookahead;
     pursuit_state.left_motor_speed = 0.0f;
     pursuit_state.right_motor_speed = 0.0f;
+    pursuit_state.target_x = odom_state.global_x;
+    pursuit_state.target_y = odom_state.global_y;
+    pursuit_state.last_time_ms = mp_hal_ticks_ms();
     pursuit_state.running = true;
     return mp_const_none;
 }
 
 mp_obj_t experimental_stop_pursuit(void) {
     pursuit_state.running = false;
+    pursuit_state.left_motor_speed = 0.0f;
+    pursuit_state.right_motor_speed = 0.0f;
     if (odom_state.left_servo && odom_state.right_servo) {
         pbio_servo_stop(odom_state.left_servo, PBIO_CONTROL_ON_COMPLETION_BRAKE);
         pbio_servo_stop(odom_state.right_servo, PBIO_CONTROL_ON_COMPLETION_BRAKE);
