@@ -29,13 +29,14 @@ void mp_hal_delay_ms(mp_uint_t Delay) {
     // Use systick counter to do the delay
     uint32_t start = pbdrv_clock_get_ms();
     // Wraparound of tick is taken care of by 2's complement arithmetic.
-    do {
+    do
+    {
         // This macro will execute the necessary idle behaviour.  It may
         // raise an exception, switch threads or enter sleep mode (waiting for
         // (at least) the SysTick interrupt).
         mp_event_wait_indefinite();
 
-        // ---> EXPERIMENTAL ODOMETRY HOOK <---
+// ---> EXPERIMENTAL ODOMETRY HOOK <---
         #if PYBRICKS_PY_EXPERIMENTAL
         pb_background_odometry_update();
         pb_background_pursuit_update();
@@ -63,7 +64,7 @@ int mp_hal_stdin_rx_chr(void) {
     while (size = 1, pbsys_host_stdin_read(&c, &size) != PBIO_SUCCESS) {
         mp_event_wait_indefinite();
 
-        // ---> EXPERIMENTAL ODOMETRY HOOK <---
+// ---> EXPERIMENTAL ODOMETRY HOOK <---
         #if PYBRICKS_PY_EXPERIMENTAL
         pb_background_odometry_update();
         pb_background_pursuit_update();
@@ -96,7 +97,7 @@ mp_uint_t mp_hal_stdout_tx_strn(const char *str, size_t len) {
         if (remaining) {
             mp_event_wait_indefinite();
 
-            // ---> EXPERIMENTAL ODOMETRY HOOK <---
+// ---> EXPERIMENTAL ODOMETRY HOOK <---
             #if PYBRICKS_PY_EXPERIMENTAL
             pb_background_odometry_update();
             pb_background_pursuit_update();

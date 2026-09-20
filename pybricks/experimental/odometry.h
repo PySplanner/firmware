@@ -7,7 +7,8 @@
 #include <stdint.h>
 
 // Optimized for Cortex-M4F Alignment
-typedef struct {
+typedef struct
+{
     pbio_servo_t *left_servo;
     pbio_servo_t *right_servo;
 
