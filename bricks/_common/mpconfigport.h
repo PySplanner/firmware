@@ -155,8 +155,12 @@ typedef long mp_off_t;
 #define PYBRICKS_VM_HOOK_LOOP_EXTRA
 #endif
 
+#if PYBRICKS_PY_EXPERIMENTAL
 void pb_background_odometry_update(void);
-void pb_background_pursuit_update(void);
+#define PYBRICKS_EXPERIMENTAL_HOOK() pb_background_odometry_update()
+#else
+#define PYBRICKS_EXPERIMENTAL_HOOK()
+#endif
 
 #define MICROPY_VM_HOOK_LOOP \
     do { \
@@ -164,8 +168,7 @@ void pb_background_pursuit_update(void);
         extern bool pbio_os_run_processes_once(void); \
         pbio_os_run_processes_once(); \
         /* Call our experimental hooks every VM cycle */ \
-        pb_background_odometry_update(); \
-        pb_background_pursuit_update(); \
+        PYBRICKS_EXPERIMENTAL_HOOK(); \
     } while (0);
 
 #define MICROPY_GC_HOOK_LOOP(i) do { \
@@ -180,6 +183,7 @@ void pb_background_pursuit_update(void);
         extern bool pbio_os_run_processes_once(void); \
         while (pbio_os_run_processes_once()) { \
         } \
+        PYBRICKS_EXPERIMENTAL_HOOK(); \
     } while (0);
 
 #define MICROPY_INTERNAL_WFE(TIMEOUT_MS) \

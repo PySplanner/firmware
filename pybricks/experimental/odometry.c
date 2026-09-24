@@ -8,6 +8,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include <pybricks/common.h>
 #include <pbio/servo.h>
@@ -17,15 +18,12 @@
 #include "pybricks/experimental/platform_math.h"
 #include <pbio/imu.h>
 
-// pbio_imu_get_heading() returns DEGREES, clockwise-positive (see lib/pbio/src/imu.c,
-// which negates the mapped z axis "for positive-clockwise convention").
-// This odometry frame is RADIANS, counter-clockwise-positive, matching the encoder
-// math on old-build. Convert and flip at the point of reading so every other use of
-// the value is already in native units.
-// If heading tracks backwards on your robot, remove the leading minus sign.
 #define PB_IMU_HEADING_TO_RAD   (-0.0174532925f)
 
 pb_odom_state_t odom_state = {0};
+
+static uint32_t last_tick_us;
+static uint32_t interval_us;
 
 static float pb_odom_read_heading(void) {
     return pbio_imu_get_heading(PBIO_IMU_HEADING_TYPE_1D) * PB_IMU_HEADING_TO_RAD;
@@ -47,29 +45,34 @@ void pb_background_odometry_update(void) {
         return;
     }
 
-    if (current_time_ms - odom_state.last_time_ms < odom_state.mstowait) {
+    uint32_t now_us = (uint32_t)mp_hal_ticks_us();
+    uint32_t elapsed_us = now_us - last_tick_us;
+    if (elapsed_us < interval_us) {
         return;
     }
-    odom_state.last_time_ms = current_time_ms;
-    odom_state.vm_loop_counter++;
 
     int32_t cur_l, cur_r, unused_rate;
-    pbio_servo_get_state_user(odom_state.left_servo, &cur_l, &unused_rate);
-    pbio_servo_get_state_user(odom_state.right_servo, &cur_r, &unused_rate);
+    if (pbio_servo_get_state_user(odom_state.left_servo, &cur_l, &unused_rate) != PBIO_SUCCESS ||
+        pbio_servo_get_state_user(odom_state.right_servo, &cur_r, &unused_rate) != PBIO_SUCCESS) {
+        if (pursuit_state.running) {
+            experimental_stop_pursuit();
+        }
+        return;
+    }
+    last_tick_us = now_us;
+    odom_state.last_time_ms = current_time_ms;
+    odom_state.vm_loop_counter++;
 
     int32_t delta_l = cur_l - odom_state.last_left_angle;
     int32_t delta_r = cur_r - odom_state.last_right_angle;
     odom_state.last_left_angle = cur_l;
     odom_state.last_right_angle = cur_r;
 
-    // Already radians, counter-clockwise-positive.
+    // ccw positive rads
     float current_heading = pb_odom_read_heading();
     float delta_h = current_heading - odom_state.last_imu_heading;
     odom_state.last_imu_heading = current_heading;
 
-    // Safety net in case the heading source ever wraps. At this tick rate a real
-    // half-turn between two samples is not physically possible, so this can only
-    // ever catch a wrap, never clip a genuine rotation.
     while (delta_h > 3.14159f) {
         delta_h -= 6.28318f;
     }
@@ -95,14 +98,15 @@ void pb_background_odometry_update(void) {
         odom_state.global_x += dD * pb_fast_cos(avg_heading);
         odom_state.global_y += dD * pb_fast_sin(avg_heading);
     }
+
+    pb_pursuit_step((float)elapsed_us * 1e-6f);
 }
 
 mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
-    // Park the background hooks while the state is half-written. Pursuit must go
-    // down too: it reads odom_state and its old path no longer relates to the
-    // coordinate frame we are about to install.
+    if (pursuit_state.running) {
+        experimental_stop_pursuit();
+    }
     odom_state.running = false;
-    pursuit_state.running = false;
 
     // pb_type_motor_get_servo() resolves subclassed motors correctly and raises a
     // proper Python error on a wrong type, unlike a raw struct cast.
@@ -127,19 +131,23 @@ mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
     if (fps > 1000) {
         fps = 1000;
     }
+    interval_us = 1000000u / (uint32_t)fps;
     odom_state.mstowait = 1000 / (uint32_t)fps;
     if (odom_state.mstowait == 0) {
         odom_state.mstowait = 1;
     }
 
-    int32_t unused;
-    pbio_servo_get_state_user(odom_state.left_servo, (int32_t *)&odom_state.last_left_angle, &unused);
-    pbio_servo_get_state_user(odom_state.right_servo, (int32_t *)&odom_state.last_right_angle, &unused);
-
-    // Baseline must be stored in the same units the loop compares against.
+    int32_t base_l, base_r, unused;
+    if (pbio_servo_get_state_user(odom_state.left_servo, &base_l, &unused) != PBIO_SUCCESS ||
+        pbio_servo_get_state_user(odom_state.right_servo, &base_r, &unused) != PBIO_SUCCESS) {
+        mp_raise_ValueError(MP_ERROR_TEXT("could not read motor angles"));
+    }
+    odom_state.last_left_angle = base_l;
+    odom_state.last_right_angle = base_r;
     odom_state.last_imu_heading = pb_odom_read_heading();
 
     odom_state.last_time_ms = mp_hal_ticks_ms();
+    last_tick_us = (uint32_t)mp_hal_ticks_us();
     odom_state.last_fps_time_ms = odom_state.last_time_ms;
     odom_state.vm_loop_counter = 0;
     odom_state.current_fps = 0;
@@ -158,8 +166,7 @@ mp_obj_t experimental_get_odometry(void) {
 }
 
 mp_obj_t experimental_stop_odometry(void) {
-    // Pursuit cannot run without odometry, so take it down first rather than
-    // leaving it steering off a frozen pose.
+    // Pursuit cannot run without odometry
     if (pursuit_state.running) {
         experimental_stop_pursuit();
     }
@@ -169,6 +176,13 @@ mp_obj_t experimental_stop_odometry(void) {
 
 mp_obj_t experimental_get_fps(void) {
     return mp_obj_new_int_from_uint(odom_state.current_fps);
+}
+
+void pb_experimental_reset(void) {
+    pb_pursuit_reset();
+    memset(&odom_state, 0, sizeof(odom_state));
+    last_tick_us = 0;
+    interval_us = 0;
 }
 
 #endif // PYBRICKS_PY_EXPERIMENTAL
