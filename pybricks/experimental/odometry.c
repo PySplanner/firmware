@@ -24,6 +24,8 @@ pb_odom_state_t odom_state = {0};
 
 static uint32_t last_tick_us;
 static uint32_t interval_us;
+static uint32_t last_step_us;
+static uint8_t exact_arc;
 
 static float pb_odom_read_heading(void) {
     return pbio_imu_get_heading(PBIO_IMU_HEADING_TYPE_1D) * PB_IMU_HEADING_TO_RAD;
@@ -38,7 +40,10 @@ void pb_background_odometry_update(void) {
     if (current_time_ms - odom_state.last_fps_time_ms >= 1000) {
         odom_state.current_fps = odom_state.vm_loop_counter;
         odom_state.vm_loop_counter = 0;
-        odom_state.last_fps_time_ms = current_time_ms;
+        odom_state.last_fps_time_ms += 1000;
+        if (current_time_ms - odom_state.last_fps_time_ms >= 1000) {
+            odom_state.last_fps_time_ms = current_time_ms;
+        }
     }
 
     if (!odom_state.left_servo || !odom_state.right_servo) {
@@ -59,7 +64,12 @@ void pb_background_odometry_update(void) {
         }
         return;
     }
-    last_tick_us = now_us;
+    last_tick_us += interval_us;
+    if (now_us - last_tick_us >= interval_us) {
+        last_tick_us = now_us;
+    }
+    uint32_t step_us = now_us - last_step_us;
+    last_step_us = now_us;
     odom_state.last_time_ms = current_time_ms;
     odom_state.vm_loop_counter++;
 
@@ -68,7 +78,7 @@ void pb_background_odometry_update(void) {
     odom_state.last_left_angle = cur_l;
     odom_state.last_right_angle = cur_r;
 
-    // ccw positive rads
+    //ccw positive rads
     float current_heading = pb_odom_read_heading();
     float delta_h = current_heading - odom_state.last_imu_heading;
     odom_state.last_imu_heading = current_heading;
@@ -94,15 +104,22 @@ void pb_background_odometry_update(void) {
         float dL = (float)delta_l * odom_state.deg_to_mm;
         float dR = (float)delta_r * odom_state.deg_to_mm;
         float dD = (dR + dL) * 0.5f;
+        if (exact_arc && fabsf(delta_h) > 1e-4f) {
+            float half = delta_h * 0.5f;
+            dD *= pb_fast_sin(half) / half;
+        }
 
         odom_state.global_x += dD * pb_fast_cos(avg_heading);
         odom_state.global_y += dD * pb_fast_sin(avg_heading);
     }
 
-    pb_pursuit_step((float)elapsed_us * 1e-6f);
+    pb_pursuit_step((float)step_us * 1e-6f);
 }
 
 mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
+    // Park the background hooks while the state is half-written. Pursuit must go
+    // down too: it reads odom_state and its old path no longer relates to the
+    // coordinate frame we are about to install.
     if (pursuit_state.running) {
         experimental_stop_pursuit();
     }
@@ -133,6 +150,7 @@ mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
     }
     interval_us = 1000000u / (uint32_t)fps;
     odom_state.mstowait = 1000 / (uint32_t)fps;
+    exact_arc = (n_args > 8) ? (mp_obj_get_int(args[8]) != 0) : 0;
     if (odom_state.mstowait == 0) {
         odom_state.mstowait = 1;
     }
@@ -144,10 +162,13 @@ mp_obj_t experimental_start_odometry(size_t n_args, const mp_obj_t *args) {
     }
     odom_state.last_left_angle = base_l;
     odom_state.last_right_angle = base_r;
+
+    // Baseline must be stored in the same units the loop compares against.
     odom_state.last_imu_heading = pb_odom_read_heading();
 
     odom_state.last_time_ms = mp_hal_ticks_ms();
     last_tick_us = (uint32_t)mp_hal_ticks_us();
+    last_step_us = last_tick_us;
     odom_state.last_fps_time_ms = odom_state.last_time_ms;
     odom_state.vm_loop_counter = 0;
     odom_state.current_fps = 0;
@@ -166,7 +187,8 @@ mp_obj_t experimental_get_odometry(void) {
 }
 
 mp_obj_t experimental_stop_odometry(void) {
-    // Pursuit cannot run without odometry
+    // Pursuit cannot run without odometry, so take it down first rather than
+    // leaving it steering off a frozen pose.
     if (pursuit_state.running) {
         experimental_stop_pursuit();
     }
@@ -183,6 +205,8 @@ void pb_experimental_reset(void) {
     memset(&odom_state, 0, sizeof(odom_state));
     last_tick_us = 0;
     interval_us = 0;
+    last_step_us = 0;
+    exact_arc = 0;
 }
 
 #endif // PYBRICKS_PY_EXPERIMENTAL
