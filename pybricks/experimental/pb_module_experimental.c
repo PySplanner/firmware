@@ -14,7 +14,7 @@ extern mp_obj_t experimental_stop_pursuit(void);
 extern mp_obj_t experimental_get_fps(void);
 
 // Object definitions
-static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_start_odometry_obj, 8, 8, experimental_start_odometry);
+static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(experimental_start_odometry_obj, 8, 9, experimental_start_odometry);
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_get_odometry_obj, experimental_get_odometry);
 static MP_DEFINE_CONST_FUN_OBJ_0(experimental_stop_odometry_obj, experimental_stop_odometry);
 
